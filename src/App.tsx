@@ -8,20 +8,29 @@ import { SendDropzone } from "@/components/SendDropzone";
 import { TransferList } from "@/components/TransferList";
 import { IncomingPrompt } from "@/components/IncomingPrompt";
 import { Settings } from "@/components/Settings";
+import { UpdateBanner } from "@/components/UpdateBanner";
 
 export default function App() {
   const init = useBeamStore((s) => s.init);
+  const checkForUpdates = useBeamStore((s) => s.checkForUpdates);
   const deviceName = useBeamStore((s) => s.deviceName);
   const deviceCount = useBeamStore((s) => s.devices.length);
 
-  // Load settings + wire backend events once.
+  // Load settings + wire backend events once, then quietly check for updates.
   useEffect(() => {
-    void init();
-  }, [init]);
+    void init().then(() => {
+      // Silent startup check — failures (e.g. no update server configured) are
+      // swallowed so they never interrupt the user.
+      void checkForUpdates().catch(() => {});
+    });
+  }, [init, checkForUpdates]);
 
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-screen flex-col bg-bg text-text">
+        {/* Update banner (only visible when an update is available) */}
+        <UpdateBanner />
+
         {/* Header */}
         <header className="flex items-center justify-between border-b border-border px-5 py-3">
           <div className="flex items-center gap-2.5">

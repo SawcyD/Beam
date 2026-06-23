@@ -13,6 +13,7 @@ import type {
   ProgressEvent,
   Transfer,
   TransferDone,
+  WatchConfig,
 } from "./types";
 
 interface BeamState {
@@ -31,6 +32,18 @@ interface BeamState {
   addStaged: (paths: string[]) => void;
   removeStaged: (path: string) => void;
   clearStaged: () => void;
+
+  // --- watch folders ---
+  watches: WatchConfig[];
+  addWatch: (path: string, peerId: string, peerName: string) => Promise<void>;
+  removeWatch: (watchId: string) => Promise<void>;
+  toggleWatch: (watchId: string, enabled: boolean) => Promise<void>;
+  refreshWatches: () => Promise<void>;
+
+  // --- update checker ---
+  updateAvailable: { version: string; body: string } | null;
+  checkForUpdates: () => Promise<void>;
+  installUpdate: () => Promise<void>;
 
   // --- lifecycle ---
   initialized: boolean;
@@ -54,6 +67,8 @@ export const useBeamStore = create<BeamState>((set, get) => ({
   transfers: {},
   incoming: null,
   stagedPaths: [],
+  watches: [],
+  updateAvailable: null,
   initialized: false,
 
   init: async () => {
@@ -95,6 +110,14 @@ export const useBeamStore = create<BeamState>((set, get) => ({
         applyDone(set, get, e.payload);
       }),
     );
+    unlisten.push(
+      await listen<{ version: string; body: string }>("update-available", (e) => {
+        set({ updateAvailable: e.payload });
+      }),
+    );
+
+    // Load initial watches list.
+    await get().refreshWatches();
 
     // Best-effort cleanup if the window ever tears down.
     window.addEventListener("beforeunload", () => unlisten.forEach((u) => u()));
@@ -201,6 +224,35 @@ export const useBeamStore = create<BeamState>((set, get) => ({
       delete next[id];
       return { transfers: next };
     }),
+
+  refreshWatches: async () => {
+    const watches = await invoke<WatchConfig[]>("list_watches");
+    set({ watches });
+  },
+
+  addWatch: async (path, peerId, peerName) => {
+    await invoke("add_watch", { path, peerId, peerName });
+    await get().refreshWatches();
+  },
+
+  removeWatch: async (watchId) => {
+    await invoke("remove_watch", { watchId });
+    await get().refreshWatches();
+  },
+
+  toggleWatch: async (watchId, enabled) => {
+    await invoke("toggle_watch", { watchId, enabled });
+    await get().refreshWatches();
+  },
+
+  checkForUpdates: async () => {
+    await invoke<boolean>("check_for_updates");
+  },
+
+  installUpdate: async () => {
+    await invoke("install_update");
+    set({ updateAvailable: null });
+  },
 }));
 
 // --- event reducers (kept outside the store object for readability) ---

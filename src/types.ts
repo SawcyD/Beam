@@ -43,6 +43,15 @@ export interface TransferDone {
   save_dir: string | null;
 }
 
+// Watch folder configuration (mirrors src-tauri/src/watch.rs).
+export interface WatchConfig {
+  id: string;
+  path: string;
+  peer_id: string;
+  peer_name: string;
+  enabled: boolean;
+}
+
 // Frontend-only view model: the running record the UI keeps per transfer.
 export type TransferStatus = "active" | "done" | "failed" | "cancelled";
 

@@ -62,3 +62,34 @@ A running log of non-obvious choices. Newest at the bottom.
   failure never affects the transfer.
 - `theme` is persisted in settings but the toggle UI is left for the backlog;
   the palette is already fully CSS-variable driven so adding it later is cheap.
+
+## Watch-folder auto-send
+
+- A watch rule = `{ folder, peer }`. New **files** created in the folder are
+  auto-sent to the peer (`notify` 7, `RecursiveMode::NonRecursive`). We only act
+  on `Create(File)` events, not modify/delete.
+- A **500ms grace period** debounces the send after a create event so apps that
+  write-then-rename (or stream a file in) finish before we read it. The pending
+  file is re-checked against the live peer table at send time, so a watch
+  survives the peer going offline/online.
+- The blocking `notify` watcher runs on its own OS thread and forwards paths to
+  the async loop over a tokio mpsc channel. Disabling a watch (the `enabled`
+  flag) makes the loop exit on its next tick.
+- Watches persist to `watches.json` in the app config dir (separate file from
+  `settings.json`) and are reloaded on startup — though they only resume sending
+  once the target peer is rediscovered on the LAN.
+
+## Update checker
+
+- Uses `tauri-plugin-updater`. Note it registers via
+  `Builder::new().build()`, **not** an `init()` like the other plugins.
+- Config lives in `tauri.conf.json → plugins.updater` (endpoints + `pubkey`).
+  A real minisign keypair was generated (`tauri signer generate`); the **public**
+  key is committed in config, the private key stays out of the repo and is only
+  needed to sign release artifacts. The endpoint is a GitHub-releases
+  placeholder (`your-org/beam`) to be pointed at a real release feed.
+- `check_for_updates` runs **silently on startup**; any failure (no network, no
+  release feed yet) is swallowed so it never interrupts the user. When an update
+  is found, the backend emits `update-available` and the frontend shows a
+  dismissible banner with an "Update & restart" action. A manual "Check now"
+  button also lives in Settings.

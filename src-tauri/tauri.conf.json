@@ -23,7 +23,14 @@
       "csp": null
     }
   },
-  "plugins": {},
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/your-org/beam/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVCMUZDQjJGMEUyOEY1RTcKUldUbjlTZ09MOHNmNjlUeS9ZWWtnbEttbU94U0R3Q1N5VFRUK1c4TFo0d2FpZWdTakNFWmVncy8K"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

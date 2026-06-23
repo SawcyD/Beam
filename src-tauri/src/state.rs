@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
 use crate::protocol::Device;
+use crate::watch::WatchConfig;
 
 /// The receiver's answer to an incoming offer: whether to accept, and where to
 /// save the files if so.
@@ -43,6 +44,10 @@ pub struct Inner {
     pub pending_offers: Mutex<HashMap<String, oneshot::Sender<OfferDecision>>>,
     /// Cancellation flags for in-flight transfers, keyed by transfer id.
     pub cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Watched folders for auto-send, keyed by watch id.
+    pub watches: Mutex<HashMap<String, WatchConfig>>,
+    /// Where watches are persisted.
+    pub watches_path: PathBuf,
     /// Our own device id, used to filter ourselves out of discovery results.
     pub our_id: String,
     /// mDNS re-registration hook, populated once discovery is running, so a
@@ -71,6 +76,21 @@ impl AppState {
                 defaults
             });
 
+        // Derive the watches file path from the config dir.
+        let watches_path = config_path
+            .parent()
+            .map(|p| p.join("watches.json"))
+            .unwrap_or_else(|| PathBuf::from("watches.json"));
+
+        let watches = std::fs::read_to_string(&watches_path)
+            .ok()
+            .and_then(|raw| {
+                serde_json::from_str::<Vec<WatchConfig>>(&raw)
+                    .ok()
+                    .map(|v| v.into_iter().map(|w| (w.id.clone(), w)).collect())
+            })
+            .unwrap_or_default();
+
         AppState {
             inner: Arc::new(Inner {
                 settings: Mutex::new(settings),
@@ -78,6 +98,8 @@ impl AppState {
                 peers: Mutex::new(HashMap::new()),
                 pending_offers: Mutex::new(HashMap::new()),
                 cancels: Mutex::new(HashMap::new()),
+                watches: Mutex::new(watches),
+                watches_path,
                 our_id,
                 mdns: Mutex::new(None),
             }),
@@ -89,6 +111,22 @@ impl AppState {
     pub fn save_settings(&self) -> Result<(), String> {
         let settings = self.inner.settings.lock().unwrap().clone();
         write_settings(&self.inner.config_path, &settings).map_err(|e| e.to_string())
+    }
+
+    /// Persist the current watches to disk.
+    pub fn save_watches(&self) -> Result<(), String> {
+        let watches: Vec<WatchConfig> = self
+            .inner
+            .watches
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect();
+        let json = serde_json::to_string_pretty(&watches)
+            .map_err(|e| format!("Serialize watches: {e}"))?;
+        std::fs::write(&self.inner.watches_path, json)
+            .map_err(|e| format!("Write watches: {e}"))
     }
 
     /// Register a fresh cancel flag for a transfer and return it. The same flag

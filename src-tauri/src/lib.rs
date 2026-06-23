@@ -5,6 +5,8 @@ mod discovery;
 mod protocol;
 mod state;
 mod transfer;
+mod updater;
+mod watch;
 
 use tauri::{AppHandle, Manager, State};
 
@@ -96,6 +98,46 @@ fn set_default_save_dir(state: State<AppState>, path: String) -> Result<(), Stri
     state.save_settings()
 }
 
+// --- Watch folder commands ---
+
+#[tauri::command]
+fn add_watch(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    path: String,
+    peer_id: String,
+    peer_name: String,
+) -> Result<String, String> {
+    watch::add_watch(app, (*state).clone(), path, peer_id, peer_name)
+}
+
+#[tauri::command]
+fn remove_watch(state: State<AppState>, watch_id: String) -> Result<(), String> {
+    watch::remove_watch(&state, &watch_id)
+}
+
+#[tauri::command]
+fn toggle_watch(state: State<AppState>, watch_id: String, enabled: bool) -> Result<(), String> {
+    watch::toggle_watch(&state, &watch_id, enabled)
+}
+
+#[tauri::command]
+fn list_watches(state: State<AppState>) -> Vec<watch::WatchConfig> {
+    watch::list_watches(&state)
+}
+
+// --- Updater commands ---
+
+#[tauri::command]
+async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, String> {
+    updater::check_for_updates(app).await
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    updater::install_update(app).await
+}
+
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
@@ -106,6 +148,9 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        // The updater plugin uses a Builder (not init); config comes from
+        // tauri.conf.json (endpoints + pubkey).
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -152,6 +197,12 @@ pub fn run() {
             cancel_transfer,
             get_default_save_dir,
             set_default_save_dir,
+            add_watch,
+            remove_watch,
+            toggle_watch,
+            list_watches,
+            check_for_updates,
+            install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Beam");
