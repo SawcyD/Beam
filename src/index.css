@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Beam palette — "ink slate" surfaces with an amber signal accent.
+   Everything in the UI references these so a future theme toggle is trivial. */
+:root {
+  --bg: #0e1116;
+  --panel: #171b22;
+  --border: #262c36;
+  --text: #e4e7eb;
+  --muted: #8b94a3;
+  --accent: #ffb627; /* active transfer / in-progress */
+  --ok: #3dd68c; /* verified / complete */
+  --err: #f2555a; /* checksum fail / rejected */
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* Desktop chrome: don't let the UI feel like a web page. */
+    user-select: none;
+    overflow: hidden;
+  }
+
+  /* Visible keyboard focus everywhere — part of the quality floor. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Tabular figures keep mono readouts from shifting width as digits change. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Respect reduced-motion: the radar sweep and packet-stream flow settle to
+   static. Individual components also check this, but kill keyframes globally
+   as a safety net. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Slim, dark scrollbars to match the panels. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
