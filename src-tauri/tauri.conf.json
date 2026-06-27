@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "Beam",
-        "width": 1040,
-        "height": 720,
-        "minWidth": 560,
-        "minHeight": 480
+        "width": 1100,
+        "height": 740,
+        "minWidth": 640,
+        "minHeight": 520,
+        "transparent": true
       }
     ],
     "security": {
@@ -26,9 +27,9 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/your-org/beam/releases/latest/download/latest.json"
+        "https://github.com/SawcyD/Beam/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVCMUZDQjJGMEUyOEY1RTcKUldUbjlTZ09MOHNmNjlUeS9ZWWtnbEttbU94U0R3Q1N5VFRUK1c4TFo0d2FpZWdTakNFWmVncy8K"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdERUFDRDZGMjU0MEQzN0MKUldSODAwQWxiODNxZmI3UzMwN3pRTFVQZkF6R212NkIyUHU3ZnppVENmbVl1dEhxbUdGWWxrdTcK"
     }
   },
   "bundle": {
