@@ -31,7 +31,17 @@ pub enum Control {
     Offer {
         transfer_id: String,
         device_name: String,
+        /// Stable device id of the sender. Old clients omit it; `default` gives "".
+        #[serde(default)]
+        device_id: String,
         files: Vec<FileMeta>,
+        /// When true, files were zipped into a single archive before sending.
+        /// The receiver should unzip it into the save directory.
+        #[serde(default)]
+        compressed: bool,
+        /// Optional message from the sender shown in the accept prompt.
+        #[serde(default)]
+        note: Option<String>,
     },
     /// Receiver's accept/reject decision.
     Response { accept: bool },
@@ -76,8 +86,24 @@ pub struct ProgressEvent {
 pub struct IncomingOffer {
     pub transfer_id: String,
     pub device_name: String,
+    pub device_id: String,
     pub files: Vec<FileMeta>,
     pub total_bytes: u64,
+    /// Optional message from the sender.
+    pub note: Option<String>,
+}
+
+/// Emitted during the pre-send hashing phase so the UI can show progress
+/// rather than a blank "Preparing…" spinner.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HashProgress {
+    pub transfer_id: String,
+    /// Number of files hashed so far.
+    pub hashed: usize,
+    /// Total number of files to hash.
+    pub total: usize,
+    /// Name of the file currently being hashed (empty when parallel).
+    pub file_name: String,
 }
 
 /// Terminal event for a transfer on either side.

@@ -1,4 +1,4 @@
-import { Laptop, Check } from "lucide-react";
+import { Laptop } from "lucide-react";
 import { useBeamStore } from "@/store";
 import { cn } from "@/lib/utils";
 
@@ -13,15 +13,18 @@ export function DeviceList() {
 
   if (devices.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted">
-        No devices found yet — make sure both machines are on the same network
-        and have Beam open.
+      <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-[12px] text-muted">
+        No devices found yet.
+        <br />
+        <span className="mt-1 block opacity-60">
+          Make sure both machines are on the same network with Beam open.
+        </span>
       </div>
     );
   }
 
   return (
-    <ul className="flex flex-col gap-1.5" role="listbox" aria-label="Discovered devices">
+    <ul className="flex flex-col gap-1" role="listbox" aria-label="Discovered devices">
       {devices.map((device) => {
         const selected = device.id === selectedId;
         return (
@@ -31,29 +34,38 @@ export function DeviceList() {
               aria-selected={selected}
               onClick={() => selectDevice(selected ? null : device.id)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                "group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-100",
                 selected
-                  ? "border-accent/60 bg-accent/10"
-                  : "border-border bg-panel hover:border-muted/50",
+                  ? "border-accent/40 bg-accent-dim shadow-sm"
+                  : "border-transparent hover:border-border hover:bg-white/[0.05]",
               )}
             >
+              {/* Device icon — amber when selected, neutral otherwise */}
               <span
                 className={cn(
-                  "grid size-9 place-items-center rounded-md",
-                  selected ? "bg-accent/20 text-accent" : "bg-border/50 text-muted",
+                  "grid size-8 shrink-0 place-items-center rounded-lg transition-colors",
+                  selected
+                    ? "bg-accent/20 text-accent"
+                    : "bg-white/[0.07] text-muted group-hover:text-text",
                 )}
               >
-                <Laptop className="size-5" />
+                <Laptop className="size-[15px]" />
               </span>
+
+              {/* Name + address */}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-text">
+                <span className="block truncate text-[13px] font-medium text-text">
                   {device.name}
                 </span>
-                <span className="block truncate font-mono text-xs text-muted">
+                <span className="block truncate font-mono text-[10px] text-muted">
                   {device.addr}
                 </span>
               </span>
-              {selected && <Check className="size-4 shrink-0 text-accent" />}
+
+              {/* Selected amber dot */}
+              {selected && (
+                <span className="size-1.5 shrink-0 rounded-full bg-accent" />
+              )}
             </button>
           </li>
         );

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { readText as clipboardRead } from "@tauri-apps/plugin-clipboard-manager";
 import {
   isPermissionGranted,
   requestPermission,
@@ -9,12 +10,18 @@ import {
 
 import type {
   Device,
+  DeviceGroup,
+  HashProgress,
+  HistoryEntry,
   IncomingOffer,
   ProgressEvent,
   Transfer,
   TransferDone,
+  TrustedDevice,
   WatchConfig,
 } from "./types";
+
+type Theme = "dark" | "light" | "system";
 
 interface BeamState {
   // --- discovery / settings ---
@@ -22,16 +29,40 @@ interface BeamState {
   deviceName: string;
   defaultSaveDir: string;
   selectedDeviceId: string | null;
+  theme: Theme;
+  conflictPolicy: string;
 
   // --- transfers ---
   transfers: Record<string, Transfer>;
   incoming: IncomingOffer | null;
 
-  // --- send staging (files dropped/picked, awaiting a target device) ---
+  // --- bandwidth + groups ---
+  bandwidthLimit: number | null;
+  setBandwidthLimit: (bps: number | null) => Promise<void>;
+  groups: DeviceGroup[];
+  createGroup: (name: string, deviceNames: string[]) => Promise<string>;
+  deleteGroup: (id: string) => Promise<void>;
+
+  // --- send staging ---
   stagedPaths: string[];
   addStaged: (paths: string[]) => void;
   removeStaged: (path: string) => void;
   clearStaged: () => void;
+
+  // --- text / clipboard send ---
+  sendText: (device: Device, content: string) => Promise<void>;
+  readClipboard: () => Promise<string>;
+
+  // --- trusted devices ---
+  trustedDevices: TrustedDevice[];
+  addTrustedDevice: (id: string, name: string) => Promise<void>;
+  removeTrustedDevice: (id: string) => Promise<void>;
+  refreshTrustedDevices: () => Promise<void>;
+
+  // --- history ---
+  history: HistoryEntry[];
+  refreshHistory: () => Promise<void>;
+  clearHistory: () => Promise<void>;
 
   // --- watch folders ---
   watches: WatchConfig[];
@@ -53,10 +84,20 @@ interface BeamState {
   selectDevice: (id: string | null) => void;
   setDeviceName: (name: string) => Promise<void>;
   setDefaultSaveDir: (path: string) => Promise<void>;
-  sendFiles: (device: Device, paths: string[]) => Promise<void>;
+  setTheme: (theme: Theme) => Promise<void>;
+  setConflictPolicy: (policy: string) => Promise<void>;
+  sendFiles: (device: Device, paths: string[], note?: string) => Promise<void>;
   respondToOffer: (accept: boolean, saveDir: string | null) => Promise<void>;
+  respondToOfferWithTrust: (
+    accept: boolean,
+    saveDir: string | null,
+    trust: boolean,
+  ) => Promise<void>;
   cancelTransfer: (id: string) => Promise<void>;
   dismissTransfer: (id: string) => void;
+  retryTransfer: (id: string) => Promise<void>;
+  clearCompleted: () => void;
+  sessionStats: { sent: number; received: number };
 }
 
 export const useBeamStore = create<BeamState>((set, get) => ({
@@ -64,10 +105,17 @@ export const useBeamStore = create<BeamState>((set, get) => ({
   deviceName: "",
   defaultSaveDir: "",
   selectedDeviceId: null,
+  theme: "dark",
+  conflictPolicy: "rename",
   transfers: {},
   incoming: null,
+  sessionStats: { sent: 0, received: 0 },
+  bandwidthLimit: null,
+  groups: [],
   stagedPaths: [],
   watches: [],
+  trustedDevices: [],
+  history: [],
   updateAvailable: null,
   initialized: false,
 
@@ -75,20 +123,33 @@ export const useBeamStore = create<BeamState>((set, get) => ({
     if (get().initialized) return;
     set({ initialized: true });
 
-    // Pull initial settings + any peers already discovered.
-    const [deviceName, defaultSaveDir, devices] = await Promise.all([
-      invoke<string>("get_device_name"),
-      invoke<string>("get_default_save_dir"),
-      invoke<Device[]>("list_devices"),
-    ]);
-    set({ deviceName, defaultSaveDir, devices });
+    const [deviceName, defaultSaveDir, devices, theme, conflictPolicy, trustedDevices, bandwidthLimit, groups] =
+      await Promise.all([
+        invoke<string>("get_device_name"),
+        invoke<string>("get_default_save_dir"),
+        invoke<Device[]>("list_devices"),
+        invoke<string>("get_theme"),
+        invoke<string>("get_conflict_policy"),
+        invoke<TrustedDevice[]>("list_trusted_devices"),
+        invoke<number | null>("get_bandwidth_limit"),
+        invoke<DeviceGroup[]>("get_groups"),
+      ]);
+    set({
+      deviceName,
+      defaultSaveDir,
+      devices,
+      theme: theme as Theme,
+      conflictPolicy,
+      trustedDevices,
+      bandwidthLimit,
+      groups,
+    });
+    applyTheme(theme as Theme);
 
-    // Ask for notification permission once, up front.
     if (!(await isPermissionGranted())) {
       await requestPermission();
     }
 
-    // Wire backend events. These listeners live for the app's lifetime.
     const unlisten: UnlistenFn[] = [];
     unlisten.push(
       await listen<Device[]>("devices-changed", (e) => {
@@ -115,11 +176,14 @@ export const useBeamStore = create<BeamState>((set, get) => ({
         set({ updateAvailable: e.payload });
       }),
     );
+    unlisten.push(
+      await listen<HashProgress>("hash-progress", (e) => {
+        applyHashProgress(set, e.payload);
+      }),
+    );
 
-    // Load initial watches list.
     await get().refreshWatches();
 
-    // Best-effort cleanup if the window ever tears down.
     window.addEventListener("beforeunload", () => unlisten.forEach((u) => u()));
   },
 
@@ -127,7 +191,6 @@ export const useBeamStore = create<BeamState>((set, get) => ({
 
   addStaged: (paths) =>
     set((s) => ({
-      // De-dupe so dropping the same file twice doesn't stack it.
       stagedPaths: Array.from(new Set([...s.stagedPaths, ...paths])),
     })),
   removeStaged: (path) =>
@@ -144,14 +207,47 @@ export const useBeamStore = create<BeamState>((set, get) => ({
     set({ defaultSaveDir: path });
   },
 
-  sendFiles: async (device, paths) => {
+  setTheme: async (theme) => {
+    await invoke("set_theme", { theme });
+    set({ theme });
+    applyTheme(theme);
+  },
+
+  setConflictPolicy: async (policy) => {
+    await invoke("set_conflict_policy", { policy });
+    set({ conflictPolicy: policy });
+  },
+
+  setBandwidthLimit: async (bps) => {
+    await invoke("set_bandwidth_limit", { bytesPerSec: bps });
+    set({ bandwidthLimit: bps });
+  },
+
+  createGroup: async (name, deviceNames) => {
+    const id = await invoke<string>("add_group", { name, deviceNames });
+    set((s) => ({ groups: [...s.groups, { id, name, device_names: deviceNames }] }));
+    return id;
+  },
+
+  deleteGroup: async (id) => {
+    await invoke("remove_group", { id });
+    set((s) => ({ groups: s.groups.filter((g) => g.id !== id) }));
+  },
+
+  sendFiles: async (device, paths, note) => {
     if (paths.length === 0) return;
-    const transferId = await invoke<string>("send_files", {
-      addr: device.addr,
-      paths,
-    });
-    // Show the transfer immediately as "preparing" — the sender hashes files
-    // before any progress events fire, which can take a moment for big files.
+    let transferId: string;
+    try {
+      transferId = await invoke<string>("send_files", {
+        addr: device.addr,
+        peerName: device.name,
+        paths,
+        note: note ?? null,
+      });
+    } catch (e) {
+      console.error("send_files error:", e);
+      return;
+    }
     set((s) => ({
       transfers: {
         ...s.transfers,
@@ -172,22 +268,87 @@ export const useBeamStore = create<BeamState>((set, get) => ({
           message: "Preparing…",
           saveDir: null,
           startedAt: Date.now(),
+          originalPaths: paths,
+          peerAddr: device.addr,
         },
       },
     }));
   },
 
+  sendText: async (device, content) => {
+    if (!content.trim()) return;
+    let transferId: string;
+    try {
+      transferId = await invoke<string>("send_text", {
+        addr: device.addr,
+        peerName: device.name,
+        content,
+      });
+    } catch (e) {
+      console.error("send_text error:", e);
+      return;
+    }
+    set((s) => ({
+      transfers: {
+        ...s.transfers,
+        [transferId]: {
+          id: transferId,
+          direction: "send",
+          peerName: device.name,
+          files: [],
+          status: "active",
+          fileIndex: 0,
+          fileName: "clipboard.txt",
+          fileBytes: 0,
+          fileSize: new TextEncoder().encode(content).length,
+          totalBytes: 0,
+          totalSize: new TextEncoder().encode(content).length,
+          bytesPerSec: 0,
+          etaSecs: null,
+          message: "Sending text…",
+          saveDir: null,
+          startedAt: Date.now(),
+        },
+      },
+    }));
+  },
+
+  readClipboard: async () => {
+    try {
+      return (await clipboardRead()) ?? "";
+    } catch {
+      return "";
+    }
+  },
+
   respondToOffer: async (accept, saveDir) => {
+    await get().respondToOfferWithTrust(accept, saveDir, false);
+  },
+
+  respondToOfferWithTrust: async (accept, saveDir, trust) => {
     const offer = get().incoming;
     if (!offer) return;
     set({ incoming: null });
+
+    if (trust && offer.device_id) {
+      await invoke("add_trusted_device", {
+        id: offer.device_id,
+        name: offer.device_name,
+      });
+      set((s) => ({
+        trustedDevices: s.trustedDevices.some((d) => d.id === offer.device_id)
+          ? s.trustedDevices
+          : [...s.trustedDevices, { id: offer.device_id, name: offer.device_name }],
+      }));
+    }
+
     await invoke("respond_to_offer", {
       transferId: offer.transfer_id,
       accept,
       saveDir,
     });
+
     if (accept) {
-      // Seed a receive transfer record so the UI shows it right away.
       set((s) => ({
         transfers: {
           ...s.transfers,
@@ -225,42 +386,104 @@ export const useBeamStore = create<BeamState>((set, get) => ({
       return { transfers: next };
     }),
 
+  retryTransfer: async (id) => {
+    const t = get().transfers[id];
+    if (!t || t.direction !== "send" || !t.originalPaths || !t.peerAddr) return;
+    const device = { id: "", name: t.peerName, addr: t.peerAddr };
+    await get().sendFiles(device, t.originalPaths);
+  },
+
+  clearCompleted: () =>
+    set((s) => {
+      const next: typeof s.transfers = {};
+      for (const [k, v] of Object.entries(s.transfers)) {
+        if (v.status === "active") next[k] = v;
+      }
+      return { transfers: next };
+    }),
+
+  // --- Trusted devices ---
+  refreshTrustedDevices: async () => {
+    const trustedDevices = await invoke<TrustedDevice[]>("list_trusted_devices");
+    set({ trustedDevices });
+  },
+  addTrustedDevice: async (id, name) => {
+    await invoke("add_trusted_device", { id, name });
+    await get().refreshTrustedDevices();
+  },
+  removeTrustedDevice: async (id) => {
+    await invoke("remove_trusted_device", { id });
+    await get().refreshTrustedDevices();
+  },
+
+  // --- History ---
+  refreshHistory: async () => {
+    const history = await invoke<HistoryEntry[]>("get_history");
+    set({ history });
+  },
+  clearHistory: async () => {
+    await invoke("clear_history");
+    set({ history: [] });
+  },
+
+  // --- Watches ---
   refreshWatches: async () => {
     const watches = await invoke<WatchConfig[]>("list_watches");
     set({ watches });
   },
-
   addWatch: async (path, peerId, peerName) => {
     await invoke("add_watch", { path, peerId, peerName });
     await get().refreshWatches();
   },
-
   removeWatch: async (watchId) => {
     await invoke("remove_watch", { watchId });
     await get().refreshWatches();
   },
-
   toggleWatch: async (watchId, enabled) => {
     await invoke("toggle_watch", { watchId, enabled });
     await get().refreshWatches();
   },
 
+  // --- Updates ---
   checkForUpdates: async () => {
     await invoke<boolean>("check_for_updates");
   },
-
   installUpdate: async () => {
     await invoke("install_update");
     set({ updateAvailable: null });
   },
 }));
 
-// --- event reducers (kept outside the store object for readability) ---
+// --- Theme application ---
+
+function applyTheme(theme: Theme) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDark = theme === "dark" || (theme === "system" && prefersDark);
+  document.documentElement.classList.toggle("light", !isDark);
+}
+
+// --- Event reducers ---
 
 type SetFn = (
   partial: Partial<BeamState> | ((s: BeamState) => Partial<BeamState>),
 ) => void;
 type GetFn = () => BeamState;
+
+function applyHashProgress(set: SetFn, p: HashProgress) {
+  set((s) => {
+    const existing = s.transfers[p.transfer_id];
+    if (!existing) return {};
+    return {
+      transfers: {
+        ...s.transfers,
+        [p.transfer_id]: {
+          ...existing,
+          message: `Hashing ${p.hashed + 1} / ${p.total} files…`,
+        },
+      },
+    };
+  });
+}
 
 function applyProgress(set: SetFn, get: GetFn, p: ProgressEvent) {
   const existing = get().transfers[p.transfer_id];
@@ -268,7 +491,6 @@ function applyProgress(set: SetFn, get: GetFn, p: ProgressEvent) {
     transfers: {
       ...s.transfers,
       [p.transfer_id]: {
-        // Start from the existing record so we keep peerName/files/startedAt.
         ...(existing ?? {
           id: p.transfer_id,
           direction: p.direction,
@@ -290,7 +512,7 @@ function applyProgress(set: SetFn, get: GetFn, p: ProgressEvent) {
         totalSize: p.total_size,
         bytesPerSec: p.bytes_per_sec,
         etaSecs: p.eta_secs,
-        message: existing?.message === "Preparing…" ? "" : existing?.message ?? "",
+        message: "",
       } as Transfer,
     },
   }));
@@ -303,6 +525,9 @@ function applyDone(set: SetFn, get: GetFn, d: TransferDone) {
     : /cancel/i.test(d.message)
       ? "cancelled"
       : "failed";
+
+  const completedAt = Date.now();
+  const finalBytes = existing?.totalSize ?? 0;
 
   set((s) => ({
     transfers: {
@@ -328,11 +553,17 @@ function applyDone(set: SetFn, get: GetFn, d: TransferDone) {
         etaSecs: null,
         message: d.message,
         saveDir: d.save_dir ?? existing?.saveDir ?? null,
+        completedAt,
       } as Transfer,
     },
+    sessionStats: d.ok
+      ? {
+          sent: s.sessionStats.sent + (d.direction === "send" ? finalBytes : 0),
+          received: s.sessionStats.received + (d.direction === "receive" ? finalBytes : 0),
+        }
+      : s.sessionStats,
   }));
 
-  // Native completion notification (success or failure).
   void fireNotification(d);
 }
 
@@ -344,6 +575,6 @@ async function fireNotification(d: TransferDone) {
       sendNotification({ title, body: d.message });
     }
   } catch {
-    // Notifications are non-critical; never let them break a transfer.
+    // Never let notification failures break a transfer.
   }
 }
