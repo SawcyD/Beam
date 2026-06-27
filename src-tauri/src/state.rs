@@ -19,14 +19,48 @@ use crate::watch::WatchConfig;
 /// save the files if so.
 pub type OfferDecision = (bool, Option<String>);
 
+/// A device the user has explicitly trusted; incoming transfers from it are
+/// auto-accepted without a prompt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustedDevice {
+    pub id: String,
+    pub name: String,
+}
+
+/// A named group of devices — send to all members in one click.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceGroup {
+    pub id: String,
+    pub name: String,
+    /// Matched against peer device names (case-sensitive).
+    pub device_names: Vec<String>,
+}
+
 /// User-facing settings persisted to a small JSON file in the app config dir.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub device_name: String,
     pub default_save_dir: String,
-    /// "dark" | "light" — reserved for the backlog theme toggle.
+    /// "dark" | "light" | "system"
+    #[serde(default = "default_theme")]
     pub theme: String,
+    /// What to do when a received file already exists at the destination:
+    /// "rename" (keep both, add suffix) | "overwrite" | "skip"
+    #[serde(default = "default_conflict_policy")]
+    pub conflict_policy: String,
+    /// Devices whose transfers are auto-accepted without a prompt.
+    #[serde(default)]
+    pub trusted_devices: Vec<TrustedDevice>,
+    /// Maximum bytes per second for outbound transfers; None = unlimited.
+    #[serde(default)]
+    pub bandwidth_limit: Option<u64>,
+    /// User-defined groups of devices for batch sends.
+    #[serde(default)]
+    pub groups: Vec<DeviceGroup>,
 }
+
+fn default_theme() -> String { "dark".to_string() }
+fn default_conflict_policy() -> String { "rename".to_string() }
 
 /// Shared, cloneable handle to all mutable app state.
 #[derive(Clone)]
@@ -48,6 +82,8 @@ pub struct Inner {
     pub watches: Mutex<HashMap<String, WatchConfig>>,
     /// Where watches are persisted.
     pub watches_path: PathBuf,
+    /// Where transfer history is persisted.
+    pub history_path: PathBuf,
     /// Our own device id, used to filter ourselves out of discovery results.
     pub our_id: String,
     /// mDNS re-registration hook, populated once discovery is running, so a
@@ -82,6 +118,11 @@ impl AppState {
             .map(|p| p.join("watches.json"))
             .unwrap_or_else(|| PathBuf::from("watches.json"));
 
+        let history_path = config_path
+            .parent()
+            .map(|p| p.join("history.json"))
+            .unwrap_or_else(|| PathBuf::from("history.json"));
+
         let watches = std::fs::read_to_string(&watches_path)
             .ok()
             .and_then(|raw| {
@@ -100,6 +141,7 @@ impl AppState {
                 cancels: Mutex::new(HashMap::new()),
                 watches: Mutex::new(watches),
                 watches_path,
+                history_path,
                 our_id,
                 mdns: Mutex::new(None),
             }),
@@ -144,6 +186,20 @@ impl AppState {
     /// Drop a transfer's cancel flag once it has finished.
     pub fn clear_cancel_flag(&self, transfer_id: &str) {
         self.inner.cancels.lock().unwrap().remove(transfer_id);
+    }
+
+    /// Returns true if `device_id` is in the trusted-devices list.
+    pub fn is_trusted(&self, device_id: &str) -> bool {
+        if device_id.is_empty() {
+            return false;
+        }
+        self.inner
+            .settings
+            .lock()
+            .unwrap()
+            .trusted_devices
+            .iter()
+            .any(|d| d.id == device_id)
     }
 }
 

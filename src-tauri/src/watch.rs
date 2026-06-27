@@ -159,7 +159,7 @@ async fn watch_folder(
                     let state_clone = state.clone();
                     let paths = vec![to_send.clone()];
                     tauri::async_runtime::spawn(async move {
-                        match transfer::spawn_send(app_clone, state_clone, peer.addr, paths) {
+                        match transfer::spawn_send(app_clone, state_clone, peer.addr, peer.name, paths, None) {
                             Ok(_tid) => {
                                 // Optional: emit a watch-auto-send event
                             }

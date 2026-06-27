@@ -2,73 +2,208 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Beam palette — "ink slate" surfaces with an amber signal accent.
-   Everything in the UI references these so a future theme toggle is trivial. */
+/* ============================================================
+   Beam – Fluent Design System tokens
+   Win11 Mica + acrylic aesthetic with Beam's amber soul.
+
+   Architecture
+   ─────────────
+   --bg        transparent shell (OS Mica shows through)
+   --surface   primary surface layer (header, sidebar)
+   --panel     card / panel surface (slightly elevated)
+   --panel-2   nested surface (inputs, hover fills)
+   --border    default hairline separator
+   --text       primary content text
+   --muted     de-emphasised labels & metadata
+   --accent    Beam amber — the only non-neutral action colour
+   --ok/--err  semantic status
+   ============================================================ */
+
 :root {
-  --bg: #0e1116;
-  --panel: #171b22;
-  --border: #262c36;
-  --text: #e4e7eb;
-  --muted: #8b94a3;
-  --accent: #ffb627; /* active transfer / in-progress */
-  --ok: #3dd68c; /* verified / complete */
-  --err: #f2555a; /* checksum fail / rejected */
+  /* ---- Colours ---- */
+  --bg:         rgba(20, 20, 20, 0.0);        /* transparent: Mica handles this */
+  --surface:    rgba(30, 30, 30, 0.88);
+  --panel:      rgba(44, 44, 44, 0.82);
+  --panel-2:    rgba(60, 60, 60, 0.76);
+  --border:     rgba(255, 255, 255, 0.07);
+  --border-mid: rgba(255, 255, 255, 0.12);
+  --text:       #ffffff;
+  --muted:      rgba(255, 255, 255, 0.52);
+  --accent:     #ffb627;
+  --accent-dim: rgba(255, 182, 39, 0.18);
+  --ok:         #6ccb5f;
+  --err:        #ff6565;
+
+  /* ---- Elevation shadows ---- */
+  --shadow-xs: 0 1px 2px rgba(0,0,0,.22);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.22), 0 2px 12px rgba(0,0,0,.14);
+  --shadow-md: 0 2px 8px rgba(0,0,0,.28), 0 4px 20px rgba(0,0,0,.18);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,.36), 0 8px 40px rgba(0,0,0,.26);
+
+  /* ---- Shape ---- */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+  --r-2xl: 20px;
 }
 
+html.light {
+  --bg:         rgba(243, 243, 243, 0.0);
+  --surface:    rgba(252, 252, 252, 0.90);
+  --panel:      rgba(255, 255, 255, 0.84);
+  --panel-2:    rgba(245, 245, 245, 0.90);
+  --border:     rgba(0, 0, 0, 0.06);
+  --border-mid: rgba(0, 0, 0, 0.10);
+  --text:       #1a1a1a;
+  --muted:      rgba(0, 0, 0, 0.52);
+  --accent:     #e6a000;
+  --accent-dim: rgba(230, 160, 0, 0.14);
+  --ok:         #107c10;
+  --err:        #c42b1c;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.06), 0 2px 12px rgba(0,0,0,.04);
+  --shadow-md: 0 2px 8px rgba(0,0,0,.08), 0 4px 20px rgba(0,0,0,.05);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,.12), 0 8px 40px rgba(0,0,0,.07);
+}
+
+/* ============================================================
+   Base layer
+   ============================================================ */
 @layer base {
-  html,
-  body,
-  #root {
+  html, body, #root {
     height: 100%;
   }
 
   body {
     margin: 0;
-    background-color: var(--bg);
+    /* Segoe UI Variable is the Windows 11 system typeface.
+       Fall back gracefully on macOS/Linux. */
+    font-family:
+      "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI",
+      system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: transparent;
     color: var(--text);
-    font-family: "Inter", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    /* Desktop chrome: don't let the UI feel like a web page. */
     user-select: none;
     overflow: hidden;
   }
 
-  /* Visible keyboard focus everywhere — part of the quality floor. */
+  /* Keyboard focus: amber ring, consistent everywhere. */
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: var(--r-sm);
   }
 
-  /* Tabular figures keep mono readouts from shifting width as digits change. */
+  /* Tabular figures for all numeric readouts. */
   .tabular {
     font-variant-numeric: tabular-nums;
   }
 }
 
-/* Respect reduced-motion: the radar sweep and packet-stream flow settle to
-   static. Individual components also check this, but kill keyframes globally
-   as a safety net. */
+/* ============================================================
+   App root — Mica tint layer
+   The OS applies Mica blur+tint to the raw window surface.
+   We add a thin dark veil so UI elements have a consistent
+   backdrop even on bright/colourful wallpapers.
+   ============================================================ */
+#root {
+  background: rgba(18, 18, 18, 0.68);
+  border-radius: 0;
+}
+
+html.light #root {
+  background: rgba(240, 240, 240, 0.70);
+}
+
+/* ============================================================
+   Scrollbars — slim Win11 style
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html.light ::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.14);
+}
+
+/* ============================================================
+   Fluent micro-interactions
+   ============================================================ */
+
+/* Fluent reveal — subtle lighter ring on hover */
+.fluent-reveal {
+  position: relative;
+  overflow: hidden;
+  transition: background 120ms ease;
+}
+.fluent-reveal::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.fluent-reveal:hover::before {
+  opacity: 1;
+}
+
+html.light .fluent-reveal::before {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* ============================================================
+   Acrylic card helper (use via Tailwind @apply or className)
+   ============================================================ */
+.acrylic {
+  background: var(--panel);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+}
+
+/* ============================================================
+   Radar keyframes (referenced by tailwind.config.js)
+   ============================================================ */
+@keyframes radar-pulse {
+  0%   { transform: scale(0.55); opacity: 0.6; }
+  100% { transform: scale(1.9);  opacity: 0; }
+}
+
+@keyframes radar-sweep {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Amber "beam" completion flash */
+@keyframes beam-flash {
+  0%   { opacity: 0; transform: scaleX(0); }
+  40%  { opacity: 1; transform: scaleX(1); }
+  100% { opacity: 0; transform: scaleX(1); }
+}
+
+/* ============================================================
+   Reduced motion safety net
+   ============================================================ */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *, *::before, *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-}
-
-/* Slim, dark scrollbars to match the panels. */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
 }

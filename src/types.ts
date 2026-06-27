@@ -18,8 +18,33 @@ export type Direction = "send" | "receive";
 export interface IncomingOffer {
   transfer_id: string;
   device_name: string;
+  device_id: string;
   files: FileMeta[];
   total_bytes: number;
+  note?: string;
+}
+
+export interface DeviceGroup {
+  id: string;
+  name: string;
+  device_names: string[];
+}
+
+export interface TrustedDevice {
+  id: string;
+  name: string;
+}
+
+export interface HistoryEntry {
+  id: string;
+  direction: Direction;
+  peer_name: string;
+  file_count: number;
+  total_bytes: number;
+  status: "done" | "failed" | "cancelled";
+  message: string;
+  save_dir: string | null;
+  timestamp_ms: number;
 }
 
 export interface ProgressEvent {
@@ -33,6 +58,13 @@ export interface ProgressEvent {
   total_size: number;
   bytes_per_sec: number;
   eta_secs: number | null;
+}
+
+export interface HashProgress {
+  transfer_id: string;
+  hashed: number;
+  total: number;
+  file_name: string;
 }
 
 export interface TransferDone {
@@ -50,6 +82,31 @@ export interface WatchConfig {
   peer_id: string;
   peer_name: string;
   enabled: boolean;
+}
+
+// ── File Explorer ────────────────────────────────────────────────────────────
+
+export interface FsEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  size: number;     // 0 for directories
+  modified: number; // ms since Unix epoch
+  extension: string; // lowercase, no leading dot; empty for dirs
+}
+
+export interface Drive {
+  name: string; // "C:"
+  path: string; // "C:\\"
+}
+
+export interface SpecialDirs {
+  home: string;
+  desktop: string;
+  documents: string;
+  downloads: string;
+  pictures: string;
+  music: string;
 }
 
 // Frontend-only view model: the running record the UI keeps per transfer.
@@ -74,4 +131,10 @@ export interface Transfer {
   message: string;
   saveDir: string | null;
   startedAt: number;
+  /** ms timestamp when transfer finished (done/failed/cancelled). */
+  completedAt?: number;
+  /** Original file paths staged for this send — enables retry. */
+  originalPaths?: string[];
+  /** Peer address at send time — needed for retry if peer reconnects. */
+  peerAddr?: string;
 }

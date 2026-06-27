@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Download, Folder, FileIcon } from "lucide-react";
+import { Download, Folder, FileIcon, ShieldCheck, MessageSquare } from "lucide-react";
 import { useBeamStore } from "@/store";
 import {
   Dialog,
@@ -12,23 +12,22 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { baseName, formatBytes } from "@/lib/format";
 
-/**
- * Modal shown when a peer offers files. The receiver sees who's sending, the
- * full file list, and the total size *before* anything touches disk, and picks
- * where files land (defaulting to the remembered save dir).
- */
 export function IncomingPrompt() {
   const incoming = useBeamStore((s) => s.incoming);
   const defaultSaveDir = useBeamStore((s) => s.defaultSaveDir);
-  const respondToOffer = useBeamStore((s) => s.respondToOffer);
+  const respondToOfferWithTrust = useBeamStore((s) => s.respondToOfferWithTrust);
 
   const [saveDir, setSaveDir] = useState(defaultSaveDir);
+  const [trust, setTrust] = useState(false);
 
-  // Reset the chosen folder to the default each time a new offer arrives.
   useEffect(() => {
-    if (incoming) setSaveDir(defaultSaveDir);
+    if (incoming) {
+      setSaveDir(defaultSaveDir);
+      setTrust(false);
+    }
   }, [incoming, defaultSaveDir]);
 
   if (!incoming) return null;
@@ -46,8 +45,7 @@ export function IncomingPrompt() {
     <Dialog
       open={!!incoming}
       onOpenChange={(o) => {
-        // Closing via overlay/escape counts as a reject.
-        if (!o) void respondToOffer(false, null);
+        if (!o) void respondToOfferWithTrust(false, null, false);
       }}
     >
       <DialogContent hideClose>
@@ -62,12 +60,23 @@ export function IncomingPrompt() {
           </DialogDescription>
         </DialogHeader>
 
+        {/* Sender note */}
+        {incoming.note && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2.5">
+            <MessageSquare className="mt-0.5 size-3.5 shrink-0 text-accent" />
+            <p className="text-sm text-text">{incoming.note}</p>
+          </div>
+        )}
+
         <ScrollArea className="max-h-44 rounded-lg border border-border">
           <ul className="divide-y divide-border">
             {incoming.files.map((f, i) => (
               <li key={i} className="flex items-center gap-2.5 px-3 py-2">
                 <FileIcon className="size-4 shrink-0 text-muted" />
-                <span className="min-w-0 flex-1 truncate text-sm text-text" title={f.name}>
+                <span
+                  className="min-w-0 flex-1 truncate text-sm text-text"
+                  title={f.name}
+                >
                   {baseName(f.name)}
                 </span>
                 <span className="shrink-0 font-mono text-xs text-muted">
@@ -82,7 +91,10 @@ export function IncomingPrompt() {
         <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-panel/60 px-3 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
             <Folder className="size-4 shrink-0 text-muted" />
-            <span className="truncate font-mono text-xs text-muted" title={saveDir}>
+            <span
+              className="truncate font-mono text-xs text-muted"
+              title={saveDir}
+            >
               {saveDir || "Choose a folder…"}
             </span>
           </div>
@@ -91,15 +103,27 @@ export function IncomingPrompt() {
           </Button>
         </div>
 
+        {/* Trust toggle */}
+        {incoming.device_id && (
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+            <ShieldCheck className="size-4 shrink-0 text-muted" />
+            <span className="flex-1 text-xs text-text">
+              Always auto-accept from{" "}
+              <span className="font-medium">{incoming.device_name}</span>
+            </span>
+            <Switch checked={trust} onCheckedChange={setTrust} />
+          </label>
+        )}
+
         <DialogFooter>
           <Button
             variant="secondary"
-            onClick={() => respondToOffer(false, null)}
+            onClick={() => respondToOfferWithTrust(false, null, false)}
           >
             Reject
           </Button>
           <Button
-            onClick={() => respondToOffer(true, saveDir)}
+            onClick={() => respondToOfferWithTrust(true, saveDir, trust)}
             disabled={!saveDir}
           >
             <Download /> Accept
