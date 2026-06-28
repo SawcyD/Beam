@@ -446,7 +446,9 @@ export const useBeamStore = create<BeamState>((set, get) => ({
 
   // --- Updates ---
   checkForUpdates: async () => {
-    await invoke<boolean>("check_for_updates");
+    console.log("[updater] invoking check_for_updates");
+    const result = await invoke<boolean>("check_for_updates");
+    console.log("[updater] invoke result:", result);
   },
   installUpdate: async () => {
     await invoke("install_update");

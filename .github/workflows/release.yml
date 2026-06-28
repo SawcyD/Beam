@@ -56,6 +56,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Get release notes from tag annotation
+        id: notes
+        shell: bash
+        run: |
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          git tag -l --format='%(contents)' ${{ github.ref_name }} >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -65,12 +73,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Beam ${{ github.ref_name }}'
-          releaseBody: |
-            ## What's new
-            See the full changelog in the repository.
-
-            ## Install
-            Download the installer for your platform below.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

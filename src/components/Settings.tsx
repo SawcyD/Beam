@@ -59,16 +59,16 @@ export function Settings() {
   const [groupDevicesSel, setGroupDevicesSel] = useState<string[]>([]);
 
   async function doCheckUpdates() {
+    console.log("[updater] check triggered");
     setChecking(true);
     setCheckResult(null);
     try {
       await checkForUpdates();
-      setCheckResult(
-        useBeamStore.getState().updateAvailable
-          ? null
-          : "You're on the latest version.",
-      );
-    } catch {
+      const available = useBeamStore.getState().updateAvailable;
+      console.log("[updater] check complete — updateAvailable:", available);
+      setCheckResult(available ? null : "You're on the latest version.");
+    } catch (err) {
+      console.error("[updater] check failed:", err);
       setCheckResult("Could not reach update server.");
     } finally {
       setChecking(false);
