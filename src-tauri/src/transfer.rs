@@ -304,6 +304,17 @@ async fn receive_files(
         }
     }
 
+    // Extract any individual folder archives (.beam.zip) in the destination directory.
+    let dest_dir = dir.to_string();
+    let extract_folders_result = tokio::task::spawn_blocking(move || {
+        extract_all_beam_zips(&dest_dir)
+    })
+    .await
+    .map_err(|e| format!("extract folders panicked: {e}"))?;
+    if let Err(e) = extract_folders_result {
+        return Err(format!("Folder extraction failed: {e}"));
+    }
+
     let file_word = if compressed { "file(s)" } else { "file(s), all checksums verified" };
     Ok((
         format!("Received {} {}", files.len(), file_word),
@@ -327,23 +338,22 @@ pub fn spawn_send(
     paths: Vec<String>,
     note: Option<String>,
 ) -> Result<String, String> {
-    let files = expand_paths(&paths)?;
-    let file_count = files.len();
+    if paths.is_empty() {
+        return Err("No files selected".to_string());
+    }
     let transfer_id = Uuid::new_v4().to_string();
     let cancel = state.new_cancel_flag(&transfer_id);
     let device_name = state.inner.settings.lock().unwrap().device_name.clone();
     let bandwidth_limit = state.inner.settings.lock().unwrap().bandwidth_limit;
     let our_id = state.inner.our_id.clone();
-    // Auto-enable compression when sending many small files.
-    let compress = file_count > 10;
 
     let app_bg = app.clone();
     let state_bg = state.clone();
     let tid = transfer_id.clone();
     tauri::async_runtime::spawn(async move {
-        let outcome = do_send(
+        let (outcome, file_count) = do_send(
             &app_bg, &state_bg, &addr, &tid, &device_name, &our_id,
-            files, cancel, compress, note, bandwidth_limit,
+            paths, cancel, note, bandwidth_limit,
         ).await;
         finish(&app_bg, &state_bg, &tid, DIRECTION_SEND, &peer_name, file_count, outcome);
     });
@@ -358,13 +368,79 @@ async fn do_send(
     transfer_id: &str,
     device_name: &str,
     our_id: &str,
-    files: Vec<(PathBuf, String)>,
+    paths: Vec<String>,
     cancel: Arc<AtomicBool>,
-    compress: bool,
     note: Option<String>,
     bandwidth_limit: Option<u64>,
-) -> Outcome {
+) -> (Outcome, usize) {
+    let mut files = Vec::new();
+    let mut sender_temp_zips = Vec::new();
+
+    // Check paths for directories and zip them on the fly
+    for p in paths {
+        let path = PathBuf::from(&p);
+        let md = match std::fs::metadata(&path) {
+            Ok(m) => m,
+            Err(e) => {
+                cleanup_temp_files(&sender_temp_zips);
+                return (Err(format!("Could not read {p}: {e}")), 0);
+            }
+        };
+
+        if md.is_dir() {
+            let folder_name = match path.file_name() {
+                Some(name) => name.to_string_lossy().to_string(),
+                None => "folder".to_string(),
+            };
+            let _ = app.emit(
+                "hash-progress",
+                HashProgress {
+                    transfer_id: transfer_id.to_string(),
+                    hashed: 0,
+                    total: 1,
+                    file_name: format!("Compressing folder: {}...", folder_name),
+                },
+            );
+
+            let zip_name = format!("{}.beam.zip", folder_name);
+            let zip_path = std::env::temp_dir().join(format!("beam_folder_{}_{}.beam.zip", folder_name, Uuid::new_v4()));
+            let src_dir = path.clone();
+            let zp = zip_path.clone();
+
+            let zip_result = tokio::task::spawn_blocking(move || {
+                zip_directory(&src_dir, &zp)
+            })
+            .await
+            .map_err(|e| format!("zip folder panicked: {e}"));
+
+            match zip_result {
+                Ok(Ok(())) => {
+                    sender_temp_zips.push(zip_path.clone());
+                    files.push((zip_path, zip_name));
+                }
+                Ok(Err(e)) => {
+                    cleanup_temp_files(&sender_temp_zips);
+                    return (Err(format!("Failed to compress folder {folder_name}: {e}")), 0);
+                }
+                Err(e) => {
+                    cleanup_temp_files(&sender_temp_zips);
+                    return (Err(e), 0);
+                }
+            }
+        } else {
+            let name = match path.file_name() {
+                Some(n) => n.to_string_lossy().to_string(),
+                None => {
+                    cleanup_temp_files(&sender_temp_zips);
+                    return (Err(format!("Invalid file name: {p}")), 0);
+                }
+            };
+            files.push((path, name));
+        }
+    }
+
     let total_files = files.len();
+    let compress = total_files > 10;
 
     // -----------------------------------------------------------------------
     // Phase 1: Parallel SHA-256 hashing.
@@ -376,7 +452,7 @@ async fn do_send(
     let app_clone = app.clone();
     let counter2 = Arc::new(AtomicUsize::new(0));
 
-    let metas: Vec<FileMeta> = tokio::task::spawn_blocking(move || {
+    let metas_result = tokio::task::spawn_blocking(move || {
         use rayon::prelude::*;
         files_clone
             .par_iter()
@@ -400,15 +476,24 @@ async fn do_send(
             })
             .collect::<Result<Vec<_>, _>>()
     })
-    .await
-    .map_err(|e| format!("hashing panicked: {e}"))??;
+    .await;
+
+    let metas = match metas_result {
+        Ok(Ok(m)) => m,
+        Ok(Err(e)) => {
+            cleanup_temp_files(&sender_temp_zips);
+            return (Err(e), total_files);
+        }
+        Err(e) => {
+            cleanup_temp_files(&sender_temp_zips);
+            return (Err(format!("hashing panicked: {e}")), total_files);
+        }
+    };
 
     let total_size: u64 = metas.iter().map(|m| m.size).sum();
 
     // -----------------------------------------------------------------------
     // Phase 2: Optionally compress into a single zip archive.
-    // `files` still holds abs paths. Zip in a blocking task so we don't
-    // stall the async runtime during I/O.
     // -----------------------------------------------------------------------
     let (offer_files, offer_metas, compressed, tmp_zip): (
         Vec<(PathBuf, String)>,
@@ -430,9 +515,9 @@ async fn do_send(
         let zp = zip_path.clone();
         let zip_result = tokio::task::spawn_blocking(move || zip_files(&zp, &files_for_zip))
             .await
-            .map_err(|e| format!("zip panicked: {e}"))?;
+            .map_err(|e| format!("zip panicked: {e}"));
         match zip_result {
-            Ok(()) => {
+            Ok(Ok(())) => {
                 let zip_size = std::fs::metadata(&zip_path).map(|m| m.len()).unwrap_or(0);
                 let zip_sha = sha256_file_sync(&zip_path).unwrap_or_default();
                 let zip_meta = FileMeta {
@@ -447,7 +532,7 @@ async fn do_send(
                     Some(zip_path),
                 )
             }
-            Err(_) => (files.clone(), metas.clone(), false, None),
+            _ => (files.clone(), metas.clone(), false, None),
         }
     } else {
         (files.clone(), metas.clone(), false, None)
@@ -456,12 +541,17 @@ async fn do_send(
     // -----------------------------------------------------------------------
     // Phase 3: Connect and send the offer.
     // -----------------------------------------------------------------------
-    let mut stream = TcpStream::connect(addr)
-        .await
-        .map_err(|e| format!("Could not reach peer ({addr}): {e}"))?;
+    let mut stream = match TcpStream::connect(addr).await {
+        Ok(s) => s,
+        Err(e) => {
+            cleanup_temp_files(&sender_temp_zips);
+            drop_zip(&tmp_zip);
+            return (Err(format!("Could not reach peer ({addr}): {e}")), total_files);
+        }
+    };
     let _ = stream.set_nodelay(true);
 
-    write_control(
+    if let Err(e) = write_control(
         &mut stream,
         &Control::Offer {
             transfer_id: transfer_id.to_string(),
@@ -472,17 +562,29 @@ async fn do_send(
             note,
         },
     )
-    .await
-    .map_err(|e| format!("Could not send offer: {e}"))?;
+    .await {
+        cleanup_temp_files(&sender_temp_zips);
+        drop_zip(&tmp_zip);
+        return (Err(format!("Could not send offer: {e}")), total_files);
+    }
 
     match read_control(&mut stream).await {
         Ok(Control::Response { accept: true }) => {}
         Ok(Control::Response { accept: false }) => {
+            cleanup_temp_files(&sender_temp_zips);
             drop_zip(&tmp_zip);
-            return Err("Declined by receiver".to_string());
+            return (Err("Declined by receiver".to_string()), total_files);
         }
-        Ok(_) => return Err("Unexpected reply from receiver".to_string()),
-        Err(e) => return Err(format!("Peer closed before responding: {e}")),
+        Ok(_) => {
+            cleanup_temp_files(&sender_temp_zips);
+            drop_zip(&tmp_zip);
+            return (Err("Unexpected reply from receiver".to_string()), total_files);
+        }
+        Err(e) => {
+            cleanup_temp_files(&sender_temp_zips);
+            drop_zip(&tmp_zip);
+            return (Err(format!("Peer closed before responding: {e}")), total_files);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -495,33 +597,45 @@ async fn do_send(
 
     for (file_index, (abs, _)) in offer_files.iter().enumerate() {
         let meta = &offer_metas[file_index];
-        let mut file = File::open(abs)
-            .await
-            .map_err(|e| format!("Could not open {}: {e}", meta.name))?;
+        let mut file = match File::open(abs).await {
+            Ok(f) => f,
+            Err(e) => {
+                cleanup_temp_files(&sender_temp_zips);
+                drop_zip(&tmp_zip);
+                return (Err(format!("Could not open {}: {e}", meta.name)), total_files);
+            }
+        };
         let mut remaining = meta.size;
         let mut file_bytes: u64 = 0;
 
         while remaining > 0 {
             if cancel.load(Ordering::Relaxed) {
+                cleanup_temp_files(&sender_temp_zips);
                 drop_zip(&tmp_zip);
-                return Err("Transfer cancelled".to_string());
+                return (Err("Transfer cancelled".to_string()), total_files);
             }
 
             let chunk_start = Instant::now();
             let want = remaining.min(CHUNK as u64) as usize;
-            let n = file
-                .read(&mut buf[..want])
-                .await
-                .map_err(|e| format!("Read error: {e}"))?;
+            let n = match file.read(&mut buf[..want]).await {
+                Ok(n) => n,
+                Err(e) => {
+                    cleanup_temp_files(&sender_temp_zips);
+                    drop_zip(&tmp_zip);
+                    return (Err(format!("Read error: {e}")), total_files);
+                }
+            };
             if n == 0 {
-                return Err(format!("{} ended sooner than expected", meta.name));
+                cleanup_temp_files(&sender_temp_zips);
+                drop_zip(&tmp_zip);
+                return (Err(format!("{} ended sooner than expected", meta.name)), total_files);
             }
-            stream
-                .write_all(&buf[..n])
-                .await
-                .map_err(|e| format!("Send failed: {e}"))?;
+            if let Err(e) = stream.write_all(&buf[..n]).await {
+                cleanup_temp_files(&sender_temp_zips);
+                drop_zip(&tmp_zip);
+                return (Err(format!("Send failed: {e}")), total_files);
+            }
 
-            // Bandwidth throttle: sleep to stay within the configured limit.
             if let Some(limit) = bandwidth_limit {
                 let expected = Duration::from_secs_f64(n as f64 / limit as f64);
                 let elapsed = chunk_start.elapsed();
@@ -545,7 +659,6 @@ async fn do_send(
             }
         }
 
-        // Emit 100% for this file immediately — don't wait for the 100ms interval.
         emit_progress(
             app, transfer_id, DIRECTION_SEND, file_index, meta,
             file_bytes, total_bytes, total_size, &meter, Instant::now(),
@@ -553,6 +666,7 @@ async fn do_send(
     }
 
     stream.flush().await.ok();
+    cleanup_temp_files(&sender_temp_zips);
     drop_zip(&tmp_zip);
 
     let msg = if compressed {
@@ -560,7 +674,7 @@ async fn do_send(
     } else {
         format!("Sent {} file(s)", total_files)
     };
-    Ok((msg, None, total_size))
+    (Ok((msg, None, total_size)), total_files)
 }
 
 // ---------------------------------------------------------------------------
@@ -683,31 +797,6 @@ fn sanitize_rel(name: &str) -> Result<PathBuf, String> {
     Ok(out)
 }
 
-/// Expand the dropped paths into `(absolute, relative-name)` pairs, walking any
-/// folders. Relative names keep the dropped folder as their top segment and use
-/// forward slashes so they're portable across platforms.
-fn expand_paths(paths: &[String]) -> Result<Vec<(PathBuf, String)>, String> {
-    let mut out = Vec::new();
-    for p in paths {
-        let path = PathBuf::from(p);
-        let md = std::fs::metadata(&path).map_err(|e| format!("Could not read {p}: {e}"))?;
-        if md.is_file() {
-            let name = path
-                .file_name()
-                .ok_or_else(|| format!("Invalid file name: {p}"))?
-                .to_string_lossy()
-                .to_string();
-            out.push((path, name));
-        } else if md.is_dir() {
-            let base = path.parent().unwrap_or_else(|| Path::new("")).to_path_buf();
-            walk_dir(&path, &base, &mut out)?;
-        }
-    }
-    if out.is_empty() {
-        return Err("Nothing to send (empty selection or empty folder)".to_string());
-    }
-    Ok(out)
-}
 
 fn walk_dir(dir: &Path, base: &Path, out: &mut Vec<(PathBuf, String)>) -> Result<(), String> {
     // Silently skip directories we can't open (system folders, junctions with
@@ -780,6 +869,64 @@ fn zip_files(dest: &Path, files: &[(PathBuf, String)]) -> Result<(), String> {
     }
     zip.finish().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Zip a single directory recursively into a zip archive at `dest_zip`.
+/// Runs synchronously — call via `spawn_blocking`.
+fn zip_directory(src_dir: &Path, dest_zip: &Path) -> Result<(), String> {
+    use std::io::{Read as _, Write as _};
+    use zip::write::SimpleFileOptions;
+
+    let base = src_dir.parent().unwrap_or(src_dir);
+    let mut files = Vec::new();
+    walk_dir(src_dir, base, &mut files)?;
+
+    let out_file = std::fs::File::create(dest_zip).map_err(|e| format!("create zip: {e}"))?;
+    let mut zip = zip::ZipWriter::new(out_file);
+    let opts = SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+    let mut buf = vec![0u8; CHUNK];
+
+    for (abs, rel) in files {
+        zip.start_file(rel, opts).map_err(|e| format!("zip start_file: {e}"))?;
+        let mut f = std::fs::File::open(abs).map_err(|e| format!("open file: {e}"))?;
+        loop {
+            let n = f.read(&mut buf).map_err(|e| format!("read file: {e}"))?;
+            if n == 0 {
+                break;
+            }
+            zip.write_all(&buf[..n]).map_err(|e| format!("write zip: {e}"))?;
+        }
+    }
+    zip.finish().map_err(|e| format!("finish zip: {e}"))?;
+    Ok(())
+}
+
+/// Extract all files ending with `.beam.zip` directly in `dest_dir`.
+/// Runs synchronously — call via `spawn_blocking`.
+fn extract_all_beam_zips(dest_dir: &str) -> Result<(), String> {
+    let path = Path::new(dest_dir);
+    let entries = std::fs::read_dir(path).map_err(|e| e.to_string())?;
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if entry_path.is_file() {
+            if let Some(filename) = entry_path.file_name() {
+                let name = filename.to_string_lossy();
+                if name.ends_with(".beam.zip") {
+                    unzip_archive(&entry_path, dest_dir)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Helper to clean up temporary sender-side directory zip files.
+fn cleanup_temp_files(paths: &[PathBuf]) {
+    for p in paths {
+        let _ = std::fs::remove_file(p);
+    }
 }
 
 /// Extract a zip archive into `dest_dir`. Runs synchronously.

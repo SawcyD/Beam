@@ -69,16 +69,17 @@ export function DeviceRadar() {
         <div
           key={i}
           className={cn(
-            "absolute rounded-full border border-border",
+            "absolute inset-0 rounded-full radar-ring-gpu",
+            reduce
+              ? "bg-accent/5 border border-accent/15 opacity-40 blur-[2px] shadow-[0_0_15px_rgba(255,182,39,0.15)]"
+              : "border border-border",
             !reduce && !scanning && "animate-radar-pulse",
           )}
           style={{
-            width: SIZE * scale,
-            height: SIZE * scale,
-            left: CENTER - (SIZE * scale) / 2,
-            top: CENTER - (SIZE * scale) / 2,
+            "--base-scale": scale,
+            transform: `translate3d(0, 0, 0) scale(${scale})`,
             animationDelay: `${i * 1.3}s`,
-          }}
+          } as React.CSSProperties}
         />
       ))}
 

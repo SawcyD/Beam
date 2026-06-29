@@ -180,9 +180,17 @@ html.light .fluent-reveal::before {
 /* ============================================================
    Radar keyframes (referenced by tailwind.config.js)
    ============================================================ */
+/* GPU-promoted radar ring layout helper */
+.radar-ring-gpu {
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform-style: preserve-3d;
+}
+
 @keyframes radar-pulse {
-  0%   { transform: scale(0.55); opacity: 0.6; }
-  100% { transform: scale(1.9);  opacity: 0; }
+  0%   { transform: translate3d(0, 0, 0) scale(calc(var(--base-scale, 1) * 0.55)); opacity: 0.6; }
+  100% { transform: translate3d(0, 0, 0) scale(calc(var(--base-scale, 1) * 1.9));  opacity: 0; }
 }
 
 @keyframes radar-sweep {

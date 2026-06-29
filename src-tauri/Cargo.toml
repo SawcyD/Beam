@@ -1,6 +1,6 @@
 [package]
 name = "beam"
-version = "0.1.0"
+version = "0.1.2"
 description = "Beam — cross-platform LAN/internet file transfer"
 authors = ["Beam"]
 edition = "2021"

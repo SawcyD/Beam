@@ -50,8 +50,8 @@ export default {
       },
       keyframes: {
         "radar-pulse": {
-          "0%":   { transform: "scale(0.55)", opacity: "0.6" },
-          "100%": { transform: "scale(1.9)",  opacity: "0" },
+          "0%":   { transform: "translate3d(0, 0, 0) scale(calc(var(--base-scale, 1) * 0.55))", opacity: "0.6" },
+          "100%": { transform: "translate3d(0, 0, 0) scale(calc(var(--base-scale, 1) * 1.9))",  opacity: "0" },
         },
         "beam-flash": {
           "0%":   { opacity: "0", transform: "scaleX(0)" },
