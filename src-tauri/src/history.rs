@@ -14,11 +14,17 @@ pub struct HistoryEntry {
     pub peer_name: String,
     pub file_count: usize,
     pub total_bytes: u64,
-    /// "done" | "failed" | "cancelled"
+    /// "done" | "failed" | "cancelled" | "declined"
     pub status: String,
     pub message: String,
     pub save_dir: Option<String>,
     pub timestamp_ms: u64,
+    /// Optional note the sender attached to the transfer.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// Name of the first (or only) file in the transfer.
+    #[serde(default)]
+    pub file_name: Option<String>,
 }
 
 pub fn now_ms() -> u64 {
@@ -50,4 +56,13 @@ pub fn load(path: &Path) -> Vec<HistoryEntry> {
 
 pub fn clear(path: &Path) {
     let _ = std::fs::write(path, "[]");
+}
+
+/// Remove a single entry by id. Best-effort.
+pub fn delete_entry(path: &Path, id: &str) {
+    let mut entries = load(path);
+    entries.retain(|e| e.id != id);
+    if let Ok(json) = serde_json::to_string_pretty(&entries) {
+        let _ = std::fs::write(path, json);
+    }
 }

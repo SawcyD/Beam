@@ -11,10 +11,12 @@ import {
   Type,
   Plus,
   ChevronDown,
+  FolderIcon,
+  FileIcon,
 } from "lucide-react";
 import { useBeamStore } from "@/store";
 import { Button } from "@/components/ui/button";
-import { baseName } from "@/lib/format";
+import { baseName, formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { Device } from "@/types";
 
@@ -22,6 +24,7 @@ type Tab = "files" | "text";
 
 export function SendDropzone() {
   const staged       = useBeamStore((s) => s.stagedPaths);
+  const stagedMeta   = useBeamStore((s) => s.stagedMeta);
   const addStaged    = useBeamStore((s) => s.addStaged);
   const removeStaged = useBeamStore((s) => s.removeStaged);
   const clearStaged  = useBeamStore((s) => s.clearStaged);
@@ -180,7 +183,15 @@ export function SendDropzone() {
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-muted">
-                  {staged.length} item{staged.length !== 1 ? "s" : ""} ready to send
+                  {(() => {
+                    const folders = staged.filter((p) => stagedMeta[p]?.is_dir).length;
+                    const files = staged.length - folders;
+                    if (folders > 0 && files > 0)
+                      return `${folders} folder${folders !== 1 ? "s" : ""}, ${files} file${files !== 1 ? "s" : ""}`;
+                    if (folders > 0)
+                      return `${folders} folder${folders !== 1 ? "s" : ""} ready to send`;
+                    return `${files} file${files !== 1 ? "s" : ""} ready to send`;
+                  })()}
                 </span>
                 <div className="flex items-center gap-1">
                   <Button variant="secondary" size="sm" onClick={() => browse(false)}>
@@ -188,25 +199,47 @@ export function SendDropzone() {
                   </Button>
                 </div>
               </div>
-              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
-                {staged.map((path) => (
-                  <span
-                    key={path}
-                    className="flex items-center gap-1 rounded-full border border-border bg-panel px-2.5 py-1 font-mono text-[11px] text-text"
-                    title={path}
-                  >
-                    <span className="max-w-[120px] truncate">
-                      {baseName(path.replace(/\\/g, "/"))}
-                    </span>
-                    <button
-                      onClick={() => removeStaged(path)}
-                      className="shrink-0 rounded-full p-0.5 text-muted hover:text-err"
-                      aria-label={`Remove ${path}`}
+              <div className="flex max-h-28 flex-col gap-1 overflow-y-auto">
+                {staged.map((path) => {
+                  const meta = stagedMeta[path];
+                  const isDir = meta?.is_dir ?? false;
+                  const name = meta?.name ?? baseName(path.replace(/\\/g, "/"));
+                  const badge = isDir
+                    ? meta?.file_count != null
+                      ? `${meta.file_count} file${meta.file_count !== 1 ? "s" : ""}`
+                      : "folder"
+                    : meta?.total_bytes != null
+                    ? formatBytes(meta.total_bytes)
+                    : "";
+
+                  return (
+                    <div
+                      key={path}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px]",
+                        isDir
+                          ? "border-accent/25 bg-accent/8 text-text"
+                          : "border-border bg-panel text-text",
+                      )}
+                      title={path}
                     >
-                      <X className="size-2.5" />
-                    </button>
-                  </span>
-                ))}
+                      {isDir
+                        ? <FolderIcon className="size-3.5 shrink-0 text-accent" />
+                        : <FileIcon className="size-3.5 shrink-0 text-muted" />}
+                      <span className="min-w-0 flex-1 truncate font-mono">{name}</span>
+                      {badge && (
+                        <span className="shrink-0 text-muted">{badge}</span>
+                      )}
+                      <button
+                        onClick={() => removeStaged(path)}
+                        className="shrink-0 rounded-full p-0.5 text-muted hover:text-err"
+                        aria-label={`Remove ${name}`}
+                      >
+                        <X className="size-2.5" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

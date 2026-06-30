@@ -258,6 +258,134 @@ fn remove_group(state: State<AppState>, id: String) -> Result<(), String> {
     state.save_settings()
 }
 
+// --- Ask before receiving ---
+
+#[tauri::command]
+fn get_ask_before_receiving(state: State<AppState>) -> bool {
+    state.inner.settings.lock().unwrap().ask_before_receiving
+}
+
+#[tauri::command]
+fn set_ask_before_receiving(state: State<AppState>, value: bool) -> Result<(), String> {
+    state.inner.settings.lock().unwrap().ask_before_receiving = value;
+    state.save_settings()
+}
+
+// --- Minimize to tray ---
+
+#[tauri::command]
+fn get_minimize_to_tray(state: State<AppState>) -> bool {
+    state.inner.settings.lock().unwrap().minimize_to_tray
+}
+
+#[tauri::command]
+fn set_minimize_to_tray(state: State<AppState>, value: bool) -> Result<(), String> {
+    state.inner.settings.lock().unwrap().minimize_to_tray = value;
+    state.save_settings()
+}
+
+// --- Launch tab ---
+
+#[tauri::command]
+fn get_launch_tab(state: State<AppState>) -> Option<String> {
+    state.inner.settings.lock().unwrap().launch_tab.clone()
+}
+
+#[tauri::command]
+fn set_launch_tab(state: State<AppState>, tab: Option<String>) -> Result<(), String> {
+    state.inner.settings.lock().unwrap().launch_tab = tab;
+    state.save_settings()
+}
+
+// --- History: delete single entry ---
+
+#[tauri::command]
+fn delete_history_entry(state: State<AppState>, id: String) -> Result<(), String> {
+    history::delete_entry(&state.inner.history_path, &id);
+    Ok(())
+}
+
+// --- Path metadata (for folder-aware staged UI) ---
+
+#[derive(serde::Serialize)]
+struct PathStat {
+    path: String,
+    is_dir: bool,
+    name: String,
+    /// For files: byte size. For directories: total bytes of all files inside (best-effort).
+    total_bytes: u64,
+    /// For directories: number of files (not subdirs). 0 for regular files.
+    file_count: usize,
+}
+
+#[tauri::command]
+fn stat_paths(paths: Vec<String>) -> Vec<PathStat> {
+    paths
+        .into_iter()
+        .filter_map(|p| {
+            let path = std::path::Path::new(&p);
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| p.clone());
+            let md = std::fs::metadata(path).ok()?;
+            if md.is_dir() {
+                let (total_bytes, file_count) = walk_count(path);
+                Some(PathStat { path: p, is_dir: true, name, total_bytes, file_count })
+            } else {
+                Some(PathStat { path: p, is_dir: false, name, total_bytes: md.len(), file_count: 0 })
+            }
+        })
+        .collect()
+}
+
+/// Walk a directory and return (total_bytes, file_count). Best-effort — errors are silently ignored.
+fn walk_count(dir: &std::path::Path) -> (u64, usize) {
+    let mut bytes = 0u64;
+    let mut count = 0usize;
+    let Ok(entries) = std::fs::read_dir(dir) else { return (0, 0); };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(ft) if ft.is_file() => {
+                bytes += entry.metadata().map(|m| m.len()).unwrap_or(0);
+                count += 1;
+            }
+            Ok(ft) if ft.is_dir() => {
+                let (b, c) = walk_count(&path);
+                bytes += b;
+                count += c;
+            }
+            _ => {}
+        }
+    }
+    (bytes, count)
+}
+
+// --- Network diagnostics ---
+
+#[derive(serde::Serialize)]
+struct NetworkInfo {
+    tcp_port: u16,
+    local_ip: Option<String>,
+    peer_count: usize,
+    device_name: String,
+}
+
+#[tauri::command]
+fn get_network_info(state: State<AppState>) -> NetworkInfo {
+    let tcp_port = *state.inner.tcp_port.lock().unwrap();
+    let peer_count = state.inner.peers.lock().unwrap().len();
+    let device_name = state.inner.settings.lock().unwrap().device_name.clone();
+    NetworkInfo { tcp_port, local_ip: local_ip(), peer_count, device_name }
+}
+
+fn local_ip() -> Option<String> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok().map(|a| a.ip().to_string())
+}
+
 // --- Updater commands ---
 
 #[tauri::command]
@@ -433,6 +561,9 @@ pub fn run() {
                 trusted_devices: Vec::new(),
                 bandwidth_limit: None,
                 groups: Vec::new(),
+                ask_before_receiving: true,
+                minimize_to_tray: false,
+                launch_tab: None,
             };
             let our_id = uuid::Uuid::new_v4().to_string();
             let app_state = AppState::load(config_path, defaults, our_id);
@@ -442,6 +573,7 @@ pub fn run() {
             let port =
                 tauri::async_runtime::block_on(transfer::listen(handle.clone(), app_state.clone()))
                     .expect("failed to start receive listener");
+            *app_state.inner.tcp_port.lock().unwrap() = port;
 
             if let Err(e) = discovery::start(handle, app_state, port, device_name) {
                 eprintln!("discovery failed to start: {e}");
@@ -479,6 +611,15 @@ pub fn run() {
             get_groups,
             add_group,
             remove_group,
+            get_ask_before_receiving,
+            set_ask_before_receiving,
+            get_minimize_to_tray,
+            set_minimize_to_tray,
+            get_launch_tab,
+            set_launch_tab,
+            delete_history_entry,
+            get_network_info,
+            stat_paths,
             // Explorer
             explorer::list_dir,
             explorer::get_drives,

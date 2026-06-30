@@ -7,6 +7,7 @@ import {
   ClockIcon,
   Search,
   FolderOpen,
+  FolderIcon,
   Send,
 } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
@@ -17,13 +18,16 @@ import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { HistoryEntry } from "@/types";
 
-type Filter = "all" | "sent" | "received" | "failed";
+type Filter = "all" | "today" | "sent" | "received" | "failed";
+
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
 export function HistoryPage() {
-  const history        = useBeamStore((s) => s.history);
-  const refreshHistory = useBeamStore((s) => s.refreshHistory);
-  const clearHistory   = useBeamStore((s) => s.clearHistory);
-  const addStaged      = useBeamStore((s) => s.addStaged);
+  const history             = useBeamStore((s) => s.history);
+  const refreshHistory      = useBeamStore((s) => s.refreshHistory);
+  const clearHistory        = useBeamStore((s) => s.clearHistory);
+  const deleteHistoryEntry  = useBeamStore((s) => s.deleteHistoryEntry);
+  const addStaged           = useBeamStore((s) => s.addStaged);
 
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery]   = useState("");
@@ -31,18 +35,28 @@ export function HistoryPage() {
 
   useEffect(() => { void refreshHistory(); }, [refreshHistory]);
 
+  const todayMs = startOfDay(new Date());
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...history]
       .reverse()
       .filter((e) => {
+        if (filter === "today")    return startOfDay(new Date(e.timestamp_ms)) >= todayMs;
         if (filter === "sent")     return e.direction === "send";
         if (filter === "received") return e.direction === "receive";
         if (filter === "failed")   return e.status !== "done";
         return true;
       })
-      .filter((e) => !q || e.peer_name.toLowerCase().includes(q));
-  }, [history, filter, query]);
+      .filter((e) => {
+        if (!q) return true;
+        return (
+          e.peer_name.toLowerCase().includes(q) ||
+          (e.file_name ?? "").toLowerCase().includes(q) ||
+          (e.note ?? "").toLowerCase().includes(q)
+        );
+      });
+  }, [history, filter, query, todayMs]);
 
   const groups = useMemo(() => groupByDate(filtered), [filtered]);
 
@@ -55,10 +69,11 @@ export function HistoryPage() {
 
   const counts = useMemo(() => ({
     all:      history.length,
+    today:    history.filter((e) => startOfDay(new Date(e.timestamp_ms)) >= todayMs).length,
     sent:     history.filter((e) => e.direction === "send").length,
     received: history.filter((e) => e.direction === "receive").length,
     failed:   history.filter((e) => e.status !== "done").length,
-  }), [history]);
+  }), [history, todayMs]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -72,7 +87,7 @@ export function HistoryPage() {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by device name…"
+              placeholder="Search by device, file, or note…"
               className="h-8 w-full rounded-lg border border-border bg-panel/60 pl-8 pr-3 text-xs text-text outline-none placeholder:text-muted focus-visible:ring-1 focus-visible:ring-accent"
             />
           </div>
@@ -91,7 +106,7 @@ export function HistoryPage() {
 
         {/* Filter pills */}
         <div className="mt-2.5 flex gap-0.5">
-          {(["all", "sent", "received", "failed"] as Filter[]).map((f) => (
+          {(["all", "today", "sent", "received", "failed"] as Filter[]).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -135,6 +150,7 @@ export function HistoryPage() {
                       entry={entry}
                       staged={stagedId === entry.id}
                       onSendAgain={() => handleSendAgain(entry)}
+                      onDelete={() => void deleteHistoryEntry(entry.id)}
                     />
                   ))}
                 </ul>
@@ -153,15 +169,18 @@ function HistoryRow({
   entry,
   staged,
   onSendAgain,
+  onDelete,
 }: {
   entry: HistoryEntry;
   staged: boolean;
   onSendAgain: () => void;
+  onDelete: () => void;
 }) {
   const ts   = new Date(entry.timestamp_ms);
   const time = ts.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
   const dirLabel = entry.direction === "send" ? "Sent to" : "Received from";
+  const isFolder = entry.file_name?.endsWith(".beam.zip") ?? false;
 
   const statusColor =
     entry.status === "done"      ? "text-ok"  :
@@ -182,6 +201,8 @@ function HistoryRow({
       >
         {entry.status !== "done" ? (
           <XCircle className="size-4" />
+        ) : isFolder ? (
+          <FolderIcon className="size-4" />
         ) : entry.direction === "send" ? (
           <ArrowUpRight className="size-4" />
         ) : (
@@ -196,13 +217,16 @@ function HistoryRow({
             {entry.peer_name}
           </span>
           <span className="shrink-0 font-mono text-[10px] text-muted">
-            {entry.file_count} file{entry.file_count !== 1 ? "s" : ""}
-            {" · "}
-            {formatBytes(entry.total_bytes)}
+            {isFolder
+              ? `📁 ${(entry.file_name ?? "").replace(/\.beam\.zip$/, "")}`
+              : `${entry.file_count} file${entry.file_count !== 1 ? "s" : ""} · ${formatBytes(entry.total_bytes)}`}
           </span>
         </div>
         <p className="mt-0.5 text-[11px] text-muted">
           <span>{dirLabel}</span>
+          {entry.note && (
+            <span className="ml-1.5 italic">&ldquo;{entry.note}&rdquo;</span>
+          )}
           {entry.status !== "done" && (
             <span className={cn("ml-1.5", statusColor)}>
               · {entry.status}
@@ -239,6 +263,15 @@ function HistoryRow({
             </Button>
           </>
         )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-muted hover:text-err"
+          onClick={onDelete}
+          title="Delete entry"
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
       </div>
 
       <span className="shrink-0 font-mono text-[10px] text-muted">{time}</span>

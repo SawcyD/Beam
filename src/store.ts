@@ -14,6 +14,7 @@ import type {
   HashProgress,
   HistoryEntry,
   IncomingOffer,
+  PathStat,
   ProgressEvent,
   Transfer,
   TransferDone,
@@ -36,6 +37,14 @@ interface BeamState {
   transfers: Record<string, Transfer>;
   incoming: IncomingOffer | null;
 
+  // --- new persisted settings ---
+  askBeforeReceiving: boolean;
+  setAskBeforeReceiving: (value: boolean) => Promise<void>;
+  minimizeToTray: boolean;
+  setMinimizeToTray: (value: boolean) => Promise<void>;
+  launchTab: string | null;
+  setLaunchTab: (tab: string | null) => Promise<void>;
+
   // --- bandwidth + groups ---
   bandwidthLimit: number | null;
   setBandwidthLimit: (bps: number | null) => Promise<void>;
@@ -45,6 +54,7 @@ interface BeamState {
 
   // --- send staging ---
   stagedPaths: string[];
+  stagedMeta: Record<string, PathStat>;
   addStaged: (paths: string[]) => void;
   removeStaged: (path: string) => void;
   clearStaged: () => void;
@@ -63,6 +73,7 @@ interface BeamState {
   history: HistoryEntry[];
   refreshHistory: () => Promise<void>;
   clearHistory: () => Promise<void>;
+  deleteHistoryEntry: (id: string) => Promise<void>;
 
   // --- watch folders ---
   watches: WatchConfig[];
@@ -113,27 +124,37 @@ export const useBeamStore = create<BeamState>((set, get) => ({
   bandwidthLimit: null,
   groups: [],
   stagedPaths: [],
+  stagedMeta: {},
   watches: [],
   trustedDevices: [],
   history: [],
   updateAvailable: null,
   initialized: false,
+  askBeforeReceiving: true,
+  minimizeToTray: false,
+  launchTab: null,
 
   init: async () => {
     if (get().initialized) return;
     set({ initialized: true });
 
-    const [deviceName, defaultSaveDir, devices, theme, conflictPolicy, trustedDevices, bandwidthLimit, groups] =
-      await Promise.all([
-        invoke<string>("get_device_name"),
-        invoke<string>("get_default_save_dir"),
-        invoke<Device[]>("list_devices"),
-        invoke<string>("get_theme"),
-        invoke<string>("get_conflict_policy"),
-        invoke<TrustedDevice[]>("list_trusted_devices"),
-        invoke<number | null>("get_bandwidth_limit"),
-        invoke<DeviceGroup[]>("get_groups"),
-      ]);
+    const [
+      deviceName, defaultSaveDir, devices, theme, conflictPolicy,
+      trustedDevices, bandwidthLimit, groups,
+      askBeforeReceiving, minimizeToTray, launchTab,
+    ] = await Promise.all([
+      invoke<string>("get_device_name"),
+      invoke<string>("get_default_save_dir"),
+      invoke<Device[]>("list_devices"),
+      invoke<string>("get_theme"),
+      invoke<string>("get_conflict_policy"),
+      invoke<TrustedDevice[]>("list_trusted_devices"),
+      invoke<number | null>("get_bandwidth_limit"),
+      invoke<DeviceGroup[]>("get_groups"),
+      invoke<boolean>("get_ask_before_receiving"),
+      invoke<boolean>("get_minimize_to_tray"),
+      invoke<string | null>("get_launch_tab"),
+    ]);
     set({
       deviceName,
       defaultSaveDir,
@@ -143,6 +164,9 @@ export const useBeamStore = create<BeamState>((set, get) => ({
       trustedDevices,
       bandwidthLimit,
       groups,
+      askBeforeReceiving,
+      minimizeToTray,
+      launchTab,
     });
     applyTheme(theme as Theme);
 
@@ -157,8 +181,42 @@ export const useBeamStore = create<BeamState>((set, get) => ({
       }),
     );
     unlisten.push(
-      await listen<IncomingOffer>("incoming-offer", (e) => {
-        set({ incoming: e.payload });
+      await listen<IncomingOffer>("incoming-offer", async (e) => {
+        // If the user turned off the approval dialog, auto-accept silently.
+        if (!get().askBeforeReceiving) {
+          const offer = e.payload;
+          const saveDir = get().defaultSaveDir;
+          await invoke("respond_to_offer", {
+            transferId: offer.transfer_id,
+            accept: true,
+            saveDir,
+          });
+          set((s) => ({
+            transfers: {
+              ...s.transfers,
+              [offer.transfer_id]: {
+                id: offer.transfer_id,
+                direction: "receive",
+                peerName: offer.device_name,
+                files: offer.files,
+                status: "active",
+                fileIndex: 0,
+                fileName: offer.files[0]?.name ?? "",
+                fileBytes: 0,
+                fileSize: offer.files[0]?.size ?? 0,
+                totalBytes: 0,
+                totalSize: offer.total_bytes,
+                bytesPerSec: 0,
+                etaSecs: null,
+                message: "Receiving…",
+                saveDir,
+                startedAt: Date.now(),
+              } as Transfer,
+            },
+          }));
+        } else {
+          set({ incoming: e.payload });
+        }
       }),
     );
     unlisten.push(
@@ -189,13 +247,25 @@ export const useBeamStore = create<BeamState>((set, get) => ({
 
   selectDevice: (id) => set({ selectedDeviceId: id }),
 
-  addStaged: (paths) =>
-    set((s) => ({
-      stagedPaths: Array.from(new Set([...s.stagedPaths, ...paths])),
-    })),
+  addStaged: (paths) => {
+    const next = Array.from(new Set([...get().stagedPaths, ...paths]));
+    const newPaths = paths.filter((p) => !get().stagedMeta[p]);
+    set({ stagedPaths: next });
+    if (newPaths.length > 0) {
+      void invoke<PathStat[]>("stat_paths", { paths: newPaths }).then((stats) => {
+        const meta = { ...get().stagedMeta };
+        for (const s of stats) meta[s.path] = s;
+        set({ stagedMeta: meta });
+      });
+    }
+  },
   removeStaged: (path) =>
-    set((s) => ({ stagedPaths: s.stagedPaths.filter((p) => p !== path) })),
-  clearStaged: () => set({ stagedPaths: [] }),
+    set((s) => {
+      const meta = { ...s.stagedMeta };
+      delete meta[path];
+      return { stagedPaths: s.stagedPaths.filter((p) => p !== path), stagedMeta: meta };
+    }),
+  clearStaged: () => set({ stagedPaths: [], stagedMeta: {} }),
 
   setDeviceName: async (name) => {
     await invoke("set_device_name", { name });
@@ -216,6 +286,19 @@ export const useBeamStore = create<BeamState>((set, get) => ({
   setConflictPolicy: async (policy) => {
     await invoke("set_conflict_policy", { policy });
     set({ conflictPolicy: policy });
+  },
+
+  setAskBeforeReceiving: async (value) => {
+    await invoke("set_ask_before_receiving", { value });
+    set({ askBeforeReceiving: value });
+  },
+  setMinimizeToTray: async (value) => {
+    await invoke("set_minimize_to_tray", { value });
+    set({ minimizeToTray: value });
+  },
+  setLaunchTab: async (tab) => {
+    await invoke("set_launch_tab", { tab });
+    set({ launchTab: tab });
   },
 
   setBandwidthLimit: async (bps) => {
@@ -424,6 +507,10 @@ export const useBeamStore = create<BeamState>((set, get) => ({
   clearHistory: async () => {
     await invoke("clear_history");
     set({ history: [] });
+  },
+  deleteHistoryEntry: async (id) => {
+    await invoke("delete_history_entry", { id });
+    set((s) => ({ history: s.history.filter((e) => e.id !== id) }));
   },
 
   // --- Watches ---

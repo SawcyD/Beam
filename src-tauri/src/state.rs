@@ -57,10 +57,22 @@ pub struct Settings {
     /// User-defined groups of devices for batch sends.
     #[serde(default)]
     pub groups: Vec<DeviceGroup>,
+    /// Show an approval dialog before accepting any incoming transfer.
+    /// When false, all transfers are auto-accepted to the default save dir.
+    #[serde(default = "default_ask_before_receiving")]
+    pub ask_before_receiving: bool,
+    /// Hide the window to the system tray when the user minimises it.
+    #[serde(default)]
+    pub minimize_to_tray: bool,
+    /// Which tab to open on launch ("transfer" | "explorer" | "history" | "settings").
+    /// None falls back to "transfer".
+    #[serde(default)]
+    pub launch_tab: Option<String>,
 }
 
 fn default_theme() -> String { "dark".to_string() }
 fn default_conflict_policy() -> String { "rename".to_string() }
+fn default_ask_before_receiving() -> bool { true }
 
 /// Shared, cloneable handle to all mutable app state.
 #[derive(Clone)]
@@ -89,6 +101,8 @@ pub struct Inner {
     /// mDNS re-registration hook, populated once discovery is running, so a
     /// device-name change can re-advertise without a restart.
     pub mdns: Mutex<Option<MdnsHandle>>,
+    /// The TCP port we're listening on — set once by `transfer::listen`.
+    pub tcp_port: Mutex<u16>,
 }
 
 /// Enough state to re-advertise our mDNS service when the device name changes.
@@ -144,6 +158,7 @@ impl AppState {
                 history_path,
                 our_id,
                 mdns: Mutex::new(None),
+                tcp_port: Mutex::new(0),
             }),
         }
     }

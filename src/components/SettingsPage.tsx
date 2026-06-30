@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   Folder,
@@ -18,12 +19,15 @@ import {
   Eye,
   Network,
   Settings2,
+  Copy,
 } from "lucide-react";
 import { useBeamStore } from "@/store";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
 import { WatchFolders } from "./WatchFolders";
 import { cn } from "@/lib/utils";
+import type { NetworkInfo } from "@/types";
 
 type Theme = "dark" | "light" | "system";
 type Section = "general" | "transfers" | "devices" | "network" | "updates" | "about";
@@ -85,10 +89,16 @@ export function SettingsPage() {
 ══════════════════════════════════════════════════════════════════ */
 
 function GeneralSection() {
-  const deviceName    = useBeamStore((s) => s.deviceName);
-  const setDeviceName = useBeamStore((s) => s.setDeviceName);
-  const theme         = useBeamStore((s) => s.theme);
-  const setTheme      = useBeamStore((s) => s.setTheme);
+  const deviceName           = useBeamStore((s) => s.deviceName);
+  const setDeviceName        = useBeamStore((s) => s.setDeviceName);
+  const theme                = useBeamStore((s) => s.theme);
+  const setTheme             = useBeamStore((s) => s.setTheme);
+  const askBeforeReceiving   = useBeamStore((s) => s.askBeforeReceiving);
+  const setAskBeforeReceiving = useBeamStore((s) => s.setAskBeforeReceiving);
+  const minimizeToTray       = useBeamStore((s) => s.minimizeToTray);
+  const setMinimizeToTray    = useBeamStore((s) => s.setMinimizeToTray);
+  const launchTab            = useBeamStore((s) => s.launchTab);
+  const setLaunchTab         = useBeamStore((s) => s.setLaunchTab);
 
   const [nameDraft, setNameDraft] = useState(deviceName);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -109,8 +119,15 @@ function GeneralSection() {
     { value: "system", icon: <Monitor className="size-3.5" />, label: "System" },
   ];
 
+  const tabOpts = [
+    { value: null,        label: "Transfer" },
+    { value: "explorer",  label: "Explorer" },
+    { value: "history",   label: "History" },
+    { value: "settings",  label: "Settings" },
+  ];
+
   return (
-    <SectionShell title="General" description="Appearance and device identity.">
+    <SectionShell title="General" description="Appearance, identity, and behaviour on startup.">
       <Row label="Appearance" description="Choose how Beam looks.">
         <div className="flex gap-1 rounded-lg border border-border p-1" style={{ background: "var(--bg)" }}>
           {themeOpts.map((opt) => (
@@ -148,6 +165,43 @@ function GeneralSection() {
           >
             {savedFlash ? <Check className="size-3.5 text-ok" /> : "Save"}
           </Button>
+        </div>
+      </Row>
+
+      <Divider />
+
+      <Row label="Ask before receiving" description="Show an approval dialog before accepting any incoming transfer. When off, all transfers are automatically saved to your default folder.">
+        <Switch
+          checked={askBeforeReceiving}
+          onCheckedChange={(v) => void setAskBeforeReceiving(v)}
+        />
+      </Row>
+
+      <Divider />
+
+      <Row label="Minimize to tray" description="Keep Beam running in the system tray when you close the window.">
+        <Switch
+          checked={minimizeToTray}
+          onCheckedChange={(v) => void setMinimizeToTray(v)}
+        />
+      </Row>
+
+      <Divider />
+
+      <Row label="Launch tab" description="Which tab opens when Beam starts.">
+        <div className="flex gap-1 rounded-lg border border-border p-1" style={{ background: "var(--bg)" }}>
+          {tabOpts.map((opt) => (
+            <button
+              key={String(opt.value)}
+              onClick={() => void setLaunchTab(opt.value)}
+              className={cn(
+                "flex flex-1 items-center justify-center rounded-md py-1.5 text-xs font-medium transition-colors",
+                launchTab === opt.value ? "bg-accent/20 text-accent" : "text-muted hover:text-text",
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </Row>
     </SectionShell>
@@ -393,6 +447,28 @@ function DevicesSection() {
 ══════════════════════════════════════════════════════════════════ */
 
 function NetworkSection() {
+  const [info, setInfo] = useState<NetworkInfo | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    void invoke<NetworkInfo>("get_network_info").then(setInfo);
+  }, []);
+
+  function copyDiagnostics() {
+    if (!info) return;
+    const text = [
+      `Device: ${info.device_name}`,
+      `TCP port: ${info.tcp_port || "unknown"}`,
+      `Local IP: ${info.local_ip ?? "unknown"}`,
+      `Peers visible: ${info.peer_count}`,
+      `mDNS: _beam._tcp`,
+    ].join("\n");
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
   return (
     <SectionShell title="Network" description="Discovery and connection diagnostics.">
       <Row
@@ -409,16 +485,44 @@ function NetworkSection() {
       <Divider />
 
       <Row
-        label="Transfer protocol"
-        description="Files are transferred over direct TCP connections at full local network speed."
-        icon={<Zap className="size-3.5 text-muted" />}
+        label="Diagnostics"
+        description="Current network information for this device."
+        icon={<Network className="size-3.5 text-muted" />}
       >
         <div
-          className="rounded-md border border-border px-3 py-2 font-mono text-xs text-muted"
+          className="flex flex-col gap-2 rounded-md border border-border p-3 font-mono text-xs"
           style={{ background: "var(--bg)" }}
         >
-          Direct TCP · Port assigned by OS · LAN-only
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted">TCP port</span>
+            <span className="text-text">{info ? (info.tcp_port || "—") : "…"}</span>
+          </div>
+          <div className="h-px bg-border/40" />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted">Local IP</span>
+            <span className="text-text">{info ? (info.local_ip ?? "unknown") : "…"}</span>
+          </div>
+          <div className="h-px bg-border/40" />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted">Peers visible</span>
+            <span className="text-text">{info ? info.peer_count : "…"}</span>
+          </div>
+          <div className="h-px bg-border/40" />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted">Protocol</span>
+            <span className="text-text">Direct TCP · LAN-only</span>
+          </div>
         </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="self-start"
+          onClick={copyDiagnostics}
+          disabled={!info}
+        >
+          <Copy className="size-3.5" />
+          {copied ? "Copied!" : "Copy diagnostics"}
+        </Button>
       </Row>
 
       <Divider />
@@ -432,8 +536,8 @@ function NetworkSection() {
       <Divider />
 
       <PlaceholderRow
-        label="Connection diagnostics"
-        description="Run a quick test to verify discovery and transfer are working."
+        label="QR / code pairing"
+        description="Pair with devices outside your local network using a one-time code."
         badge="Coming soon"
       />
     </SectionShell>

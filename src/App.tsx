@@ -27,7 +27,13 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("transfer");
 
   useEffect(() => {
-    void init().then(() => void checkForUpdates().catch(() => {}));
+    void init().then(() => {
+      const stored = useBeamStore.getState().launchTab;
+      if (stored && ["transfer", "explorer", "history", "settings"].includes(stored)) {
+        setTab(stored as Tab);
+      }
+      void checkForUpdates().catch(() => {});
+    });
   }, [init, checkForUpdates]);
 
   // Switch tab from tray menu

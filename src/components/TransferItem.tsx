@@ -6,6 +6,7 @@ import {
   XCircle,
   Ban,
   FolderOpen,
+  FolderIcon,
   ExternalLink,
   X,
   ChevronDown,
@@ -36,12 +37,22 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
   const isActive = t.status === "active";
   const totalPct = t.totalSize > 0 ? t.totalBytes / t.totalSize : isActive ? 0 : 1;
 
-  const headline =
-    t.files.length === 1
-      ? baseName(t.files[0].name || t.fileName)
-      : t.files.length > 1
-      ? `${t.files.length} files`
-      : baseName(t.fileName) || "Transfer";
+  // Detect a folder transfer: a single file whose name ends with .beam.zip
+  const isFolderTransfer =
+    (t.files.length === 1 && t.files[0].name.endsWith(".beam.zip")) ||
+    (t.files.length === 0 && t.fileName.endsWith(".beam.zip"));
+
+  function cleanFolderName(name: string): string {
+    return baseName(name.replace(/\.beam\.zip$/, ""));
+  }
+
+  const headline = isFolderTransfer
+    ? cleanFolderName(t.files[0]?.name || t.fileName)
+    : t.files.length === 1
+    ? baseName(t.files[0].name || t.fileName)
+    : t.files.length > 1
+    ? `${t.files.length} files`
+    : baseName(t.fileName) || "Transfer";
 
   const subline = [
     t.direction === "send" ? "→" : "←",
@@ -52,8 +63,12 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
     .filter(Boolean)
     .join("  ·  ");
 
-  const firstFilePath =
-    t.saveDir && t.files[0] ? joinPath(t.saveDir, t.files[0].name) : t.saveDir;
+  // For folder transfers: open the extracted folder, not the .beam.zip.
+  const firstFilePath = isFolderTransfer && t.saveDir
+    ? joinPath(t.saveDir, cleanFolderName(t.files[0]?.name || t.fileName))
+    : t.saveDir && t.files[0]
+    ? joinPath(t.saveDir, t.files[0].name)
+    : t.saveDir;
 
   const canRetry =
     t.status === "failed" && t.direction === "send" && !!t.originalPaths && !!t.peerAddr;
@@ -74,7 +89,7 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
     >
       {/* ── Row 1: icon + headline + right action ───────────────── */}
       <div className="flex items-center gap-3">
-        <StatusBadge transfer={t} />
+        <StatusBadge transfer={t} isFolder={isFolderTransfer} />
 
         <div className="min-w-0 flex-1">
           <p className="truncate text-[13px] font-semibold leading-tight text-text">
@@ -214,17 +229,19 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
   );
 }
 
-function StatusBadge({ transfer: t }: { transfer: Transfer }) {
+function StatusBadge({ transfer: t, isFolder }: { transfer: Transfer; isFolder: boolean }) {
   const base = "grid size-8 place-items-center rounded-lg shrink-0";
   if (t.status === "done")
-    return <span className={cn(base, "bg-ok/15 text-ok")}><CheckCircle2 className="size-4" /></span>;
+    return <span className={cn(base, "bg-ok/15 text-ok")}>{isFolder ? <FolderIcon className="size-4" /> : <CheckCircle2 className="size-4" />}</span>;
   if (t.status === "failed")
     return <span className={cn(base, "bg-err/15 text-err")}><XCircle className="size-4" /></span>;
   if (t.status === "cancelled")
     return <span className={cn(base, "bg-border text-muted")}><Ban className="size-4" /></span>;
   return (
     <span className={cn(base, "bg-accent/15 text-accent")}>
-      {t.direction === "send"
+      {isFolder
+        ? <FolderIcon className="size-4" />
+        : t.direction === "send"
         ? <ArrowUpFromLine className="size-4" />
         : <ArrowDownToLine className="size-4" />}
     </span>

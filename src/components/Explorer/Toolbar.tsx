@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import {
   ChevronLeft, ChevronRight, ChevronUp,
   LayoutList, LayoutGrid, Search, X, FolderPlus,
-  Zap, RefreshCw,
+  Zap, RefreshCw, FolderIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ interface Props {
   sortBy: SortKey;
   sortAsc: boolean;
   selectedPaths: string[];
+  hasSelectedFolders: boolean;
   selectedDevice: Device | undefined;
   searchQuery: string;
   onBack: () => void;
@@ -34,7 +35,7 @@ interface Props {
 
 export function ExplorerToolbar({
   currentPath, canBack, canForward, viewMode,
-  selectedPaths, selectedDevice, searchQuery,
+  selectedPaths, hasSelectedFolders, selectedDevice, searchQuery,
   onBack, onForward, onUp, onRefresh, onNavigate,
   onViewMode, onNewFolder, onSearch, onSendWithBeam,
 }: Props) {
@@ -131,9 +132,9 @@ export function ExplorerToolbar({
             title={selectedDevice ? `Send to ${selectedDevice.name}` : "Select a device in the Transfer tab first"}
             className="h-7 gap-1.5 px-3 text-[12px]"
           >
-            <Zap className="size-3.5" />
+            {hasSelectedFolders ? <FolderIcon className="size-3.5" /> : <Zap className="size-3.5" />}
             {selectedDevice
-              ? `Send to ${selectedDevice.name}${selectedPaths.length > 1 ? ` (${selectedPaths.length})` : ""}`
+              ? `Send${hasSelectedFolders ? " folder" : ""} to ${selectedDevice.name}${selectedPaths.length > 1 ? ` (${selectedPaths.length})` : ""}`
               : `Send (${selectedPaths.length})`}
           </Button>
         ) : selectedDevice ? (

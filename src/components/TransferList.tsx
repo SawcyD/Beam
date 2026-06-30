@@ -13,6 +13,7 @@ export function TransferList() {
   const transfers      = useBeamStore((s) => s.transfers);
   const sessionStats   = useBeamStore((s) => s.sessionStats);
   const clearCompleted = useBeamStore((s) => s.clearCompleted);
+  const bandwidthLimit = useBeamStore((s) => s.bandwidthLimit);
   const [filter, setFilter] = useState<Filter>("all");
 
   const all    = Object.values(transfers).sort((a, b) => b.startedAt - a.startedAt);
@@ -96,6 +97,12 @@ export function TransferList() {
           {sessionStats.received > 0 && (
             <span className="text-muted">
               ↓ <span className="text-text">{formatBytes(sessionStats.received)}</span> received
+            </span>
+          )}
+          {bandwidthLimit !== null && (
+            <span className="flex items-center gap-1 rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] text-accent">
+              <Zap className="size-2.5" />
+              {formatSpeed(bandwidthLimit)} cap
             </span>
           )}
           {active.length > 0 && (

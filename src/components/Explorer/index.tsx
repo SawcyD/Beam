@@ -41,6 +41,7 @@ export function Explorer() {
   const [specialDirs, setSpecialDirs] = useState<SpecialDirs | null>(null);
 
   const sendFiles     = useBeamStore((s) => s.sendFiles);
+  const addStaged     = useBeamStore((s) => s.addStaged);
   const selectedDevId = useBeamStore((s) => s.selectedDeviceId);
   const devices       = useBeamStore((s) => s.devices);
   const beamDownloads = useBeamStore((s) => s.defaultSaveDir);
@@ -220,6 +221,19 @@ export function Explorer() {
     void sendFiles(selectedDevice, paths);
   };
 
+  // Quick-send a folder: if a device is selected, send immediately; otherwise stage it.
+  const handleSendFolder = (path: string) => {
+    if (selectedDevice) {
+      void sendFiles(selectedDevice, [path]);
+    } else {
+      addStaged([path]);
+    }
+  };
+
+  const hasSelectedFolders = sortedEntries
+    .filter((e) => selected.has(e.path))
+    .some((e) => e.is_dir);
+
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -298,6 +312,7 @@ export function Explorer() {
           onNewFolder={handleNewFolder}
           onSearch={setSearchQuery}
           onSendWithBeam={handleSendWithBeam}
+          hasSelectedFolders={hasSelectedFolders}
         />
 
         {error && (
@@ -319,6 +334,7 @@ export function Explorer() {
           onContextMenu={handleContextMenu}
           onRename={handleRename}
           onRenameCancel={() => setRenaming(null)}
+          onSendFolder={handleSendFolder}
           onSort={(key) => {
             if (sortBy === key) setSortAsc((a) => !a);
             else { setSortBy(key); setSortAsc(true); }

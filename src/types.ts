@@ -41,10 +41,14 @@ export interface HistoryEntry {
   peer_name: string;
   file_count: number;
   total_bytes: number;
-  status: "done" | "failed" | "cancelled";
+  status: "done" | "failed" | "cancelled" | "declined";
   message: string;
   save_dir: string | null;
   timestamp_ms: number;
+  /** Note the sender attached to the transfer, if any. */
+  note?: string;
+  /** Name of the first (or only) file. */
+  file_name?: string;
 }
 
 export interface ProgressEvent {
@@ -159,8 +163,97 @@ export interface ResumeState {
   last_progress_ms: number;
 }
 
+// ── Path metadata (for folder-aware staging) ─────────────────────────────────
+
+export interface PathStat {
+  path: string;
+  is_dir: boolean;
+  name: string;
+  /** Total bytes of files inside (directory) or file size (regular file). */
+  total_bytes: number;
+  /** Number of files inside a directory; 0 for regular files. */
+  file_count: number;
+}
+
+// ── App settings (mirrors Rust Settings struct) ──────────────────────────────
+
+export interface AppSettings {
+  deviceName: string;
+  theme: "dark" | "light" | "system";
+  defaultDownloadFolder: string;
+  askBeforeReceiving: boolean;
+  bandwidthThrottleEnabled: boolean;
+  bandwidthThrottleLimitBytesPerSecond: number | null;
+  minimizeToTray: boolean;
+  startOnLogin: boolean;           // TODO: wire up Tauri auto-start plugin
+  keepTransferHistory: boolean;    // TODO: implement retention policy
+  launchTab: string | null;
+}
+
+// ── Network diagnostics ──────────────────────────────────────────────────────
+
+export interface NetworkInfo {
+  tcp_port: number;
+  local_ip: string | null;
+  peer_count: number;
+  device_name: string;
+}
+
+// ── Transfer types ───────────────────────────────────────────────────────────
+
+/** All possible states a transfer can be in. */
+export type TransferStatus =
+  | "queued"
+  | "waiting"
+  | "active"
+  | "receiving"
+  | "done"
+  | "failed"
+  | "cancelled"
+  | "declined";
+
+/** What kind of payload was transferred. */
+export type TransferType = "file" | "folder" | "text" | "clipboard";
+
+// ── Future: clipboard sync ────────────────────────────────────────────────────
+// TODO: implement clipboard sync between trusted devices
+
+export interface ClipboardSyncConfig {
+  enabled: boolean;
+  trustedDevicesOnly: boolean;
+  /** Sync automatically or only when user triggers "Send clipboard". */
+  mode: "manual" | "auto";
+}
+
+// ── Future: file request / pull mode ─────────────────────────────────────────
+// TODO: implement pull-mode file requests
+
+/** Sent by Device A to request a specific file from Device B. */
+export interface FileRequestPayload {
+  request_id: string;
+  requester_device_id: string;
+  requester_name: string;
+  description: string;
+  created_at: number;
+}
+
+/** Device B's response — approve and send, or decline. */
+export interface FileRequestResponse {
+  request_id: string;
+  accepted: boolean;
+  transfer_id?: string;
+}
+
+// ── Future: QR / code pairing ────────────────────────────────────────────────
+// TODO: implement local pairing codes / QR pairing for cross-network use
+
+export interface PairingCode {
+  code: string;
+  expires_at: number;
+  local_addr: string;
+}
+
 // ── Frontend-only view model: the running record the UI keeps per transfer. ──
-export type TransferStatus = "active" | "done" | "failed" | "cancelled";
 
 export interface Transfer {
   id: string;

@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import {
   Folder, FolderOpen, Image, Video, Music,
   FileText, FileCode, Archive, Terminal, File,
-  ChevronUp, ChevronDown, ChevronsUpDown, Loader2,
+  ChevronUp, ChevronDown, ChevronsUpDown, Loader2, Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -27,12 +27,14 @@ interface Props {
   onRename: (path: string, newName: string) => void;
   onRenameCancel: () => void;
   onSort: (key: SortKey) => void;
+  /** Called when the user clicks the quick-send button on a directory row. */
+  onSendFolder?: (path: string) => void;
 }
 
 export function ExplorerFileList({
   entries, selected, viewMode, sortBy, sortAsc, renaming, loading,
   onEntryClick, onEntryDoubleClick, onContextMenu,
-  onRename, onRenameCancel, onSort,
+  onRename, onRenameCancel, onSort, onSendFolder,
 }: Props) {
   if (loading) {
     return (
@@ -124,6 +126,7 @@ export function ExplorerFileList({
             }}
             onRename={(name) => onRename(entry.path, name)}
             onRenameCancel={onRenameCancel}
+            onSendFolder={entry.is_dir ? onSendFolder : undefined}
           />
         ))}
       </div>
@@ -134,7 +137,7 @@ export function ExplorerFileList({
 // ── List row ──────────────────────────────────────────────────────────────
 
 function ListEntry({
-  entry, selected, renaming, onClick, onDoubleClick, onContextMenu, onRename, onRenameCancel,
+  entry, selected, renaming, onClick, onDoubleClick, onContextMenu, onRename, onRenameCancel, onSendFolder,
 }: {
   entry: FsEntry;
   selected: boolean;
@@ -144,6 +147,7 @@ function ListEntry({
   onContextMenu: (e: React.MouseEvent) => void;
   onRename: (name: string) => void;
   onRenameCancel: () => void;
+  onSendFolder?: (path: string) => void;
 }) {
   return (
     <div
@@ -179,9 +183,24 @@ function ListEntry({
       <span className="w-32 shrink-0 truncate text-muted">
         {fileTypeName(entry)}
       </span>
-      {/* Size */}
-      <span className="w-24 shrink-0 text-right font-mono text-muted">
-        {entry.is_dir ? "—" : formatBytes(entry.size)}
+      {/* Size / quick send */}
+      <span className="relative w-24 shrink-0 text-right font-mono text-muted">
+        {entry.is_dir && onSendFolder ? (
+          <>
+            <span className="group-hover:opacity-0 transition-opacity">—</span>
+            <button
+              className="absolute inset-0 flex items-center justify-end pr-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Send folder with Beam"
+              onClick={(e) => { e.stopPropagation(); onSendFolder(entry.path); }}
+            >
+              <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors">
+                <Send className="size-2.5" /> Send
+              </span>
+            </button>
+          </>
+        ) : (
+          entry.is_dir ? "—" : formatBytes(entry.size)
+        )}
       </span>
     </div>
   );

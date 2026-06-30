@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Download, Folder, FileIcon, ShieldCheck, MessageSquare } from "lucide-react";
-import { useBeamStore } from "@/store";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  Download,
+  Folder,
+  FileIcon,
+  ShieldCheck,
+  MessageSquare,
+  X,
+  Laptop,
+} from "lucide-react";
+import { useBeamStore } from "@/store";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
@@ -41,42 +41,54 @@ export function IncomingPrompt() {
     if (typeof picked === "string") setSaveDir(picked);
   }
 
+  const fileWord = incoming.files.length === 1 ? "file" : "files";
+
   return (
-    <Dialog
-      open={!!incoming}
-      onOpenChange={(o) => {
-        if (!o) void respondToOfferWithTrust(false, null, false);
-      }}
-    >
-      <DialogContent hideClose>
-        <DialogHeader>
-          <DialogTitle>Incoming transfer</DialogTitle>
-          <DialogDescription>
-            <span className="font-medium text-text">{incoming.device_name}</span>{" "}
-            wants to send you {incoming.files.length} file
-            {incoming.files.length === 1 ? "" : "s"} (
-            <span className="font-mono">{formatBytes(incoming.total_bytes)}</span>
-            ).
-          </DialogDescription>
-        </DialogHeader>
+    /* Full-screen overlay */
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      {/* Card */}
+      <div className="relative w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-2xl">
+
+        {/* Dismiss (reject) X button */}
+        <button
+          className="absolute right-3.5 top-3.5 rounded-md p-1 text-muted hover:bg-white/[0.07] hover:text-text transition-colors"
+          onClick={() => void respondToOfferWithTrust(false, null, false)}
+          aria-label="Reject"
+        >
+          <X className="size-4" />
+        </button>
+
+        {/* Sender info */}
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent/15">
+            <Laptop className="size-5 text-accent" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-text">
+              {incoming.device_name}
+            </p>
+            <p className="text-xs text-muted">
+              wants to send {incoming.files.length} {fileWord} (
+              {formatBytes(incoming.total_bytes)})
+            </p>
+          </div>
+        </div>
 
         {/* Sender note */}
         {incoming.note && (
-          <div className="flex items-start gap-2.5 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2.5">
+          <div className="mb-3 flex items-start gap-2.5 rounded-xl border border-accent/20 bg-accent/5 px-3 py-2.5">
             <MessageSquare className="mt-0.5 size-3.5 shrink-0 text-accent" />
-            <p className="text-sm text-text">{incoming.note}</p>
+            <p className="text-xs leading-relaxed text-text">{incoming.note}</p>
           </div>
         )}
 
-        <ScrollArea className="max-h-44 rounded-lg border border-border">
-          <ul className="divide-y divide-border">
+        {/* File list */}
+        <ScrollArea className="mb-3 max-h-36 overflow-auto rounded-xl border border-border/60 bg-panel/40">
+          <ul className="divide-y divide-border/40">
             {incoming.files.map((f, i) => (
               <li key={i} className="flex items-center gap-2.5 px-3 py-2">
-                <FileIcon className="size-4 shrink-0 text-muted" />
-                <span
-                  className="min-w-0 flex-1 truncate text-sm text-text"
-                  title={f.name}
-                >
+                <FileIcon className="size-3.5 shrink-0 text-muted" />
+                <span className="min-w-0 flex-1 truncate text-xs text-text" title={f.name}>
                   {baseName(f.name)}
                 </span>
                 <span className="shrink-0 font-mono text-xs text-muted">
@@ -88,48 +100,49 @@ export function IncomingPrompt() {
         </ScrollArea>
 
         {/* Destination folder */}
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-panel/60 px-3 py-2.5">
-          <div className="flex min-w-0 items-center gap-2">
-            <Folder className="size-4 shrink-0 text-muted" />
-            <span
-              className="truncate font-mono text-xs text-muted"
-              title={saveDir}
-            >
-              {saveDir || "Choose a folder…"}
-            </span>
-          </div>
-          <Button variant="ghost" size="sm" onClick={chooseFolder}>
-            Change…
-          </Button>
-        </div>
+        <button
+          className="mb-3 flex w-full items-center gap-2.5 rounded-xl border border-border/60 bg-panel/40 px-3 py-2.5 text-left hover:bg-white/[0.04] transition-colors"
+          onClick={chooseFolder}
+          title="Change save folder"
+        >
+          <Folder className="size-3.5 shrink-0 text-accent" />
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted">
+            {saveDir || "Choose a folder…"}
+          </span>
+          <span className="shrink-0 text-xs text-muted">Change</span>
+        </button>
 
         {/* Trust toggle */}
         {incoming.device_id && (
-          <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-border px-3 py-2.5">
-            <ShieldCheck className="size-4 shrink-0 text-muted" />
+          <label className="mb-4 flex cursor-pointer items-center gap-3 rounded-xl border border-border/60 px-3 py-2.5">
+            <ShieldCheck className="size-3.5 shrink-0 text-muted" />
             <span className="flex-1 text-xs text-text">
-              Always auto-accept from{" "}
+              Always trust{" "}
               <span className="font-medium">{incoming.device_name}</span>
             </span>
             <Switch checked={trust} onCheckedChange={setTrust} />
           </label>
         )}
 
-        <DialogFooter>
+        {/* Action buttons */}
+        <div className="flex gap-2.5">
           <Button
             variant="secondary"
-            onClick={() => respondToOfferWithTrust(false, null, false)}
+            className="flex-1"
+            onClick={() => void respondToOfferWithTrust(false, null, false)}
           >
-            Reject
+            Decline
           </Button>
           <Button
-            onClick={() => respondToOfferWithTrust(true, saveDir, trust)}
+            className="flex-1"
+            onClick={() => void respondToOfferWithTrust(true, saveDir, trust)}
             disabled={!saveDir}
           >
-            <Download /> Accept
+            <Download className="size-3.5" />
+            Accept
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -94,8 +94,17 @@ async fn handle_incoming(app: AppHandle, state: AppState, mut stream: TcpStream)
     let total_bytes: u64 = files.iter().map(|f| f.size).sum();
     let file_count = files.len();
 
-    // 2. Decide: auto-accept for trusted devices, otherwise ask the user.
-    let (accept, save_dir) = if state.is_trusted(&device_id) {
+    // Save these before potentially moving `note` into the emit below.
+    let note_for_history = note.clone();
+    let first_file_name = files.first().map(|f| f.name.clone());
+
+    // 2. Decide: auto-accept for trusted devices or when ask_before_receiving=false.
+    let (ask, is_trusted) = {
+        let s = state.inner.settings.lock().unwrap();
+        (s.ask_before_receiving, state.is_trusted(&device_id))
+    };
+
+    let (accept, save_dir) = if is_trusted || !ask {
         let dir = state.inner.settings.lock().unwrap().default_save_dir.clone();
         (true, Some(dir))
     } else {
@@ -155,7 +164,7 @@ async fn handle_incoming(app: AppHandle, state: AppState, mut stream: TcpStream)
     )
     .await;
 
-    finish(&app, &state, &transfer_id, DIRECTION_RECEIVE, &device_name, file_count, outcome);
+    finish(&app, &state, &transfer_id, DIRECTION_RECEIVE, &device_name, file_count, outcome, note_for_history, first_file_name);
 }
 
 /// Stream every offered file to disk, hashing as we go and verifying SHA-256.
@@ -347,6 +356,11 @@ pub fn spawn_send(
     let bandwidth_limit = state.inner.settings.lock().unwrap().bandwidth_limit;
     let our_id = state.inner.our_id.clone();
 
+    let first_file_name = paths.first().and_then(|p| {
+        std::path::Path::new(p).file_name()?.to_str().map(String::from)
+    });
+    let note_for_history = note.clone();
+
     let app_bg = app.clone();
     let state_bg = state.clone();
     let tid = transfer_id.clone();
@@ -355,7 +369,7 @@ pub fn spawn_send(
             &app_bg, &state_bg, &addr, &tid, &device_name, &our_id,
             paths, cancel, note, bandwidth_limit,
         ).await;
-        finish(&app_bg, &state_bg, &tid, DIRECTION_SEND, &peer_name, file_count, outcome);
+        finish(&app_bg, &state_bg, &tid, DIRECTION_SEND, &peer_name, file_count, outcome, note_for_history, first_file_name);
     });
 
     Ok(transfer_id)
@@ -690,6 +704,8 @@ fn finish(
     peer_name: &str,
     file_count: usize,
     outcome: Outcome,
+    note: Option<String>,
+    first_file_name: Option<String>,
 ) {
     state.clear_cancel_flag(transfer_id);
 
@@ -718,6 +734,8 @@ fn finish(
             message: message.clone(),
             save_dir: save_dir.clone(),
             timestamp_ms: history::now_ms(),
+            note,
+            file_name: first_file_name,
         },
     );
 
