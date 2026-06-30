@@ -1,21 +1,22 @@
 import { useEffect, useState } from "react";
-import { History as HistoryIcon, Send, FolderOpen } from "lucide-react";
+import { Send, FolderOpen, History as HistoryIcon, Settings2 } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
 import { useBeamStore } from "./store";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Button } from "@/components/ui/button";
 import { DeviceRadar } from "@/components/DeviceRadar";
 import { DeviceList } from "@/components/DeviceList";
 import { SendDropzone } from "@/components/SendDropzone";
 import { TransferList } from "@/components/TransferList";
 import { IncomingPrompt } from "@/components/IncomingPrompt";
-import { Settings } from "@/components/Settings";
 import { UpdateBanner } from "@/components/UpdateBanner";
-import { History } from "@/components/History";
 import { Explorer } from "@/components/Explorer";
+import { HistoryPage } from "@/components/HistoryPage";
+import { SettingsPage } from "@/components/SettingsPage";
 import { WindowControls } from "@/components/WindowControls";
+import { BeamLogo } from "@/components/BeamLogo";
 import { cn } from "@/lib/utils";
 
-type Tab = "transfer" | "explorer";
+type Tab = "transfer" | "explorer" | "history" | "settings";
 
 export default function App() {
   const init            = useBeamStore((s) => s.init);
@@ -23,19 +24,24 @@ export default function App() {
   const deviceName      = useBeamStore((s) => s.deviceName);
   const deviceCount     = useBeamStore((s) => s.devices.length);
 
-  const [tab, setTab]               = useState<Tab>("transfer");
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [tab, setTab] = useState<Tab>("transfer");
 
   useEffect(() => {
     void init().then(() => void checkForUpdates().catch(() => {}));
   }, [init, checkForUpdates]);
+
+  // Switch tab from tray menu
+  useEffect(() => {
+    const unlisten = listen<Tab>("beam-tab", (e) => setTab(e.payload));
+    return () => { void unlisten.then((u) => u()); };
+  }, []);
 
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-screen flex-col overflow-hidden text-text">
         <UpdateBanner />
 
-        {/* ── Command bar / Custom titlebar ───────────────────── */}
+        {/* ── Top navigation / Custom titlebar ─────────────── */}
         <header
           data-tauri-drag-region
           className="relative z-10 flex shrink-0 items-center gap-3 border-b border-border bg-surface/90 pl-4 pr-0 py-0 backdrop-blur-fluent"
@@ -46,23 +52,12 @@ export default function App() {
             <span
               className="grid size-[30px] shrink-0 place-items-center rounded-lg"
               style={{
-                background: "linear-gradient(135deg, #ffb627 0%, #ff8a00 100%)",
-                boxShadow: "0 1px 6px rgba(255,182,39,0.45)",
+                background: "rgba(120, 230, 75, 0.12)",
+                border: "1px solid rgba(120, 230, 75, 0.25)",
+                boxShadow: "0 1px 6px rgba(120,230,75,0.15)",
               }}
             >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path
-                  d="M2 5.5C2 4.67 2.67 4 3.5 4H7l1.5 1.5H14.5C15.33 5.5 16 6.17 16 7V13.5C16 14.33 15.33 15 14.5 15H3.5C2.67 15 2 14.33 2 13.5V5.5Z"
-                  fill="rgba(255,255,255,0.25)"
-                />
-                <path
-                  d="M10.5 7.5L8 11h2.5L7.5 14.5"
-                  stroke="white"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <BeamLogo size={18} />
             </span>
             <div className="leading-none">
               <div className="text-sm font-semibold tracking-[-0.01em] text-text">Beam</div>
@@ -73,7 +68,7 @@ export default function App() {
           <div className="mx-1 h-5 w-px bg-border-mid" />
 
           {/* Tab pills */}
-          <nav className="flex gap-0.5">
+          <nav className="flex gap-0.5" data-tauri-drag-region="false">
             <TabButton active={tab === "transfer"} onClick={() => setTab("transfer")}>
               <Send className="size-3.5" />
               Transfer
@@ -82,35 +77,42 @@ export default function App() {
               <FolderOpen className="size-3.5" />
               Explorer
             </TabButton>
+            <TabButton active={tab === "history"} onClick={() => setTab("history")}>
+              <HistoryIcon className="size-3.5" />
+              History
+            </TabButton>
+            <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
+              <Settings2 className="size-3.5" />
+              Settings
+            </TabButton>
           </nav>
 
-          <div className="flex-1" />
-
-          {/* Right actions */}
-          <div className="flex items-center gap-0.5 py-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Transfer history"
-              onClick={() => setHistoryOpen(true)}
-              className="rounded-lg"
+          {/* Device count badge — right of tabs */}
+          {deviceCount > 0 && tab === "transfer" && (
+            <span
+              className="rounded-full px-2 py-0.5 font-mono text-[10px] font-medium"
+              style={{
+                background: "var(--accent-dim)",
+                color: "var(--accent)",
+              }}
             >
-              <HistoryIcon className="size-4" />
-            </Button>
-            <Settings />
-          </div>
+              {deviceCount} nearby
+            </span>
+          )}
+
+          <div className="flex-1" data-tauri-drag-region />
 
           {/* Window controls — flush right, full header height */}
           <WindowControls />
         </header>
 
-        {/* ── Main content ─────────────────────────────────────── */}
+        {/* ── Main content ─────────────────────────────────── */}
         <main className="flex min-h-0 flex-1 overflow-hidden">
 
           {tab === "transfer" && (
             <>
-              {/* Left — devices */}
-              <aside className="flex w-[320px] shrink-0 flex-col gap-3 border-r border-border bg-surface/60 p-4 backdrop-blur-fluent">
+              {/* Left sidebar — devices */}
+              <aside className="flex w-[300px] shrink-0 flex-col gap-3 border-r border-border bg-surface/60 p-4 backdrop-blur-fluent">
                 <div
                   className="rounded-2xl border border-border bg-panel/60 py-3"
                   style={{ boxShadow: "var(--shadow-sm)" }}
@@ -145,17 +147,22 @@ export default function App() {
           )}
 
           {tab === "explorer" && <Explorer />}
+
+          {tab === "history" && <HistoryPage />}
+
+          {tab === "settings" && <SettingsPage />}
         </main>
       </div>
 
       <IncomingPrompt />
-      <History open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </TooltipProvider>
   );
 }
 
 function TabButton({
-  active, onClick, children,
+  active,
+  onClick,
+  children,
 }: {
   active: boolean;
   onClick: () => void;

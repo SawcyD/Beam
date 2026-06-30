@@ -10,7 +10,7 @@ mod transfer;
 mod updater;
 mod watch;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use history::HistoryEntry;
 use protocol::Device;
@@ -300,25 +300,85 @@ pub fn run() {
                 use tauri::menu::{Menu, MenuItem};
                 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
+                let device_name = handle
+                    .try_state::<AppState>()
+                    .map(|s| s.inner.settings.lock().unwrap().device_name.clone())
+                    .unwrap_or_else(|| "Beam".to_string());
+
+                // Identity label (disabled — shows which device this is)
+                let identity = MenuItem::with_id(
+                    app,
+                    "identity",
+                    format!("Beam — {device_name}"),
+                    false, // disabled: label only
+                    None::<&str>,
+                )?;
+
+                let sep1 = tauri::menu::PredefinedMenuItem::separator(app)?;
+
+                // Quick-navigate items
+                let nav_transfer = MenuItem::with_id(app, "nav-transfer", "Transfer",  true, None::<&str>)?;
+                let nav_explorer = MenuItem::with_id(app, "nav-explorer", "Explorer",  true, None::<&str>)?;
+                let nav_history  = MenuItem::with_id(app, "nav-history",  "History",   true, None::<&str>)?;
+                let nav_settings = MenuItem::with_id(app, "nav-settings", "Settings",  true, None::<&str>)?;
+
+                let sep2 = tauri::menu::PredefinedMenuItem::separator(app)?;
+
+                let check_updates = MenuItem::with_id(app, "check-updates", "Check for Updates…", true, None::<&str>)?;
+
+                let sep3 = tauri::menu::PredefinedMenuItem::separator(app)?;
+
                 let show = MenuItem::with_id(app, "show", "Show Beam", true, None::<&str>)?;
-                let quit = MenuItem::with_id(app, "quit",  "Quit Beam",  true, None::<&str>)?;
-                let sep  = tauri::menu::PredefinedMenuItem::separator(app)?;
-                let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
+                let quit = MenuItem::with_id(app, "quit", "Quit Beam", true, None::<&str>)?;
+
+                let sep4 = tauri::menu::PredefinedMenuItem::separator(app)?;
+
+                let menu = Menu::with_items(app, &[
+                    &identity,
+                    &sep1,
+                    &nav_transfer, &nav_explorer, &nav_history, &nav_settings,
+                    &sep2,
+                    &check_updates,
+                    &sep3,
+                    &show,
+                    &sep4,
+                    &quit,
+                ])?;
 
                 TrayIconBuilder::new()
                     .icon(app.default_window_icon().unwrap().clone())
                     .tooltip("Beam — LAN File Transfer")
                     .menu(&menu)
                     .show_menu_on_left_click(false)
-                    .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => {
+                    .on_menu_event(|app, event| {
+                        // Helper: show + focus the main window
+                        let focus = |app: &tauri::AppHandle| {
                             if let Some(w) = app.get_webview_window("main") {
                                 let _ = w.show();
                                 let _ = w.set_focus();
                             }
+                        };
+                        match event.id.as_ref() {
+                            "nav-transfer" => {
+                                focus(app);
+                                let _ = app.emit("beam-tab", "transfer");
+                            }
+                            "nav-explorer" => {
+                                focus(app);
+                                let _ = app.emit("beam-tab", "explorer");
+                            }
+                            "nav-history" => {
+                                focus(app);
+                                let _ = app.emit("beam-tab", "history");
+                            }
+                            "nav-settings" | "check-updates" => {
+                                focus(app);
+                                let _ = app.emit("beam-tab", "settings");
+                            }
+                            "show" => focus(app),
+                            "quit" => app.exit(0),
+                            _ => {}
                         }
-                        "quit" => app.exit(0),
-                        _ => {}
                     })
                     .on_tray_icon_event(|tray, event| {
                         if let TrayIconEvent::Click {

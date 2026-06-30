@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import {
   Folder, FolderOpen, Image, Video, Music,
   FileText, FileCode, Archive, Terminal, File,
-  ChevronUp, ChevronDown, ChevronsUpDown,
+  ChevronUp, ChevronDown, ChevronsUpDown, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -36,15 +36,22 @@ export function ExplorerFileList({
 }: Props) {
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-muted">
-        <span className="animate-pulse">Loading…</span>
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted">
+        <Loader2 className="size-5 animate-spin" />
+        <span className="text-xs">Loading…</span>
       </div>
     );
   }
 
   if (entries.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center">
+      <div className="flex flex-1 flex-col items-center justify-center gap-3">
+        <div
+          className="grid size-12 place-items-center rounded-2xl border border-border"
+          style={{ background: "var(--panel)" }}
+        >
+          <FolderOpen className="size-5 text-muted" />
+        </div>
         <p className="text-sm text-muted">This folder is empty</p>
       </div>
     );
@@ -94,7 +101,7 @@ export function ExplorerFileList({
       }}
     >
       {/* Column header */}
-      <div className="flex shrink-0 border-b border-border bg-surface/40 text-[11px] text-muted">
+      <div className="flex shrink-0 border-b border-border text-[11px] text-muted" style={{ background: "var(--surface)" }}>
         <SortHeader label="Name"     col="name" sortBy={sortBy} sortAsc={sortAsc} onSort={onSort} flex="flex-1" />
         <SortHeader label="Date"     col="date" sortBy={sortBy} sortAsc={sortAsc} onSort={onSort} width="w-40" />
         <SortHeader label="Type"     col="type" sortBy={sortBy} sortAsc={sortAsc} onSort={onSort} width="w-32" />
@@ -145,9 +152,9 @@ function ListEntry({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       className={cn(
-        "group flex cursor-default items-center border-b border-border/40 px-3 py-[3px] text-[12px] transition-colors",
+        "group flex cursor-default items-center border-b border-border/30 px-3 py-[5px] text-[12px] transition-colors",
         selected
-          ? "bg-accent/[0.14] text-text"
+          ? "bg-accent/[0.12] text-text"
           : "hover:bg-white/[0.04] text-text",
       )}
     >
@@ -201,9 +208,9 @@ function GridEntry({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-xl p-2 text-center cursor-default transition-colors",
+        "flex flex-col items-center gap-1.5 rounded-xl p-2 text-center cursor-default transition-all duration-100",
         selected
-          ? "bg-accent/[0.16]"
+          ? "bg-accent/[0.15] ring-1 ring-accent/30"
           : "hover:bg-white/[0.05]",
       )}
     >

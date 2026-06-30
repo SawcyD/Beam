@@ -4,7 +4,7 @@
 
 /* ============================================================
    Beam – Fluent Design System tokens
-   Win11 Mica + acrylic aesthetic with Beam's amber soul.
+   Win11 Mica + acrylic aesthetic with Beam Green.
 
    Architecture
    ─────────────
@@ -15,7 +15,7 @@
    --border    default hairline separator
    --text       primary content text
    --muted     de-emphasised labels & metadata
-   --accent    Beam amber — the only non-neutral action colour
+   --accent    Beam Green — the only non-neutral action colour
    --ok/--err  semantic status
    ============================================================ */
 
@@ -29,8 +29,8 @@
   --border-mid: rgba(255, 255, 255, 0.12);
   --text:       #ffffff;
   --muted:      rgba(255, 255, 255, 0.52);
-  --accent:     #ffb627;
-  --accent-dim: rgba(255, 182, 39, 0.18);
+  --accent:     #78E64B;
+  --accent-dim: rgba(120, 230, 75, 0.15);
   --ok:         #6ccb5f;
   --err:        #ff6565;
 
@@ -58,8 +58,8 @@ html.light {
   --border-mid: rgba(0, 0, 0, 0.10);
   --text:       #1a1a1a;
   --muted:      rgba(0, 0, 0, 0.52);
-  --accent:     #e6a000;
-  --accent-dim: rgba(230, 160, 0, 0.14);
+  --accent:     #5bc435;
+  --accent-dim: rgba(91, 196, 53, 0.12);
   --ok:         #107c10;
   --err:        #c42b1c;
 
@@ -198,7 +198,7 @@ html.light .fluent-reveal::before {
   to   { transform: rotate(360deg); }
 }
 
-/* Amber "beam" completion flash */
+/* Green "beam" completion flash */
 @keyframes beam-flash {
   0%   { opacity: 0; transform: scaleX(0); }
   40%  { opacity: 1; transform: scaleX(1); }

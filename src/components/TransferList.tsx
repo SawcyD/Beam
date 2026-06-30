@@ -66,21 +66,6 @@ export function TransferList() {
 
         <div className="flex-1" />
 
-        {aggregateSpeed > 0 && (
-          <span className="flex items-center gap-1 font-mono text-[11px] text-accent">
-            <Zap className="size-3" />
-            {formatSpeed(aggregateSpeed)}
-          </span>
-        )}
-
-        {(sessionStats.sent > 0 || sessionStats.received > 0) && (
-          <span className="font-mono text-[11px] text-muted">
-            {sessionStats.sent > 0 && `↑ ${formatBytes(sessionStats.sent)}`}
-            {sessionStats.sent > 0 && sessionStats.received > 0 && "  "}
-            {sessionStats.received > 0 && `↓ ${formatBytes(sessionStats.received)}`}
-          </span>
-        )}
-
         {hasEnded && (
           <button
             onClick={clearCompleted}
@@ -90,6 +75,36 @@ export function TransferList() {
           </button>
         )}
       </div>
+
+      {/* ── Stats row ────────────────────────────────────────────── */}
+      {(aggregateSpeed > 0 || sessionStats.sent > 0 || sessionStats.received > 0) && (
+        <div
+          className="flex items-center gap-4 rounded-lg border border-border px-3 py-2 font-mono text-[11px]"
+          style={{ background: "var(--panel)", boxShadow: "var(--shadow-xs)" }}
+        >
+          {aggregateSpeed > 0 && (
+            <span className="flex items-center gap-1.5 text-accent">
+              <Zap className="size-3" />
+              {formatSpeed(aggregateSpeed)}
+            </span>
+          )}
+          {sessionStats.sent > 0 && (
+            <span className="text-muted">
+              ↑ <span className="text-text">{formatBytes(sessionStats.sent)}</span> sent
+            </span>
+          )}
+          {sessionStats.received > 0 && (
+            <span className="text-muted">
+              ↓ <span className="text-text">{formatBytes(sessionStats.received)}</span> received
+            </span>
+          )}
+          {active.length > 0 && (
+            <span className="ml-auto text-muted">
+              {active.length} active
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── List ─────────────────────────────────────────────────── */}
       {visible.length === 0 ? (

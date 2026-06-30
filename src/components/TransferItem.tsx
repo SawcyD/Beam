@@ -10,6 +10,7 @@ import {
   X,
   ChevronDown,
   RefreshCw,
+  FileIcon,
 } from "lucide-react";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { motion, AnimatePresence } from "framer-motion";
@@ -33,19 +34,34 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
   const [expanded, setExpanded] = useState(false);
 
   const isActive = t.status === "active";
-  const filePct  = t.fileSize > 0 ? t.fileBytes / t.fileSize : 0;
   const totalPct = t.totalSize > 0 ? t.totalBytes / t.totalSize : isActive ? 0 : 1;
+
+  const headline =
+    t.files.length === 1
+      ? baseName(t.files[0].name || t.fileName)
+      : t.files.length > 1
+      ? `${t.files.length} files`
+      : baseName(t.fileName) || "Transfer";
+
+  const subline = [
+    t.direction === "send" ? "→" : "←",
+    t.peerName || "device",
+    t.totalSize > 0 ? formatBytes(t.totalSize) : null,
+    t.message && t.status !== "active" ? t.message : null,
+  ]
+    .filter(Boolean)
+    .join("  ·  ");
 
   const firstFilePath =
     t.saveDir && t.files[0] ? joinPath(t.saveDir, t.files[0].name) : t.saveDir;
+
+  const canRetry =
+    t.status === "failed" && t.direction === "send" && !!t.originalPaths && !!t.peerAddr;
 
   const duration =
     t.completedAt && !isActive
       ? formatDuration(t.completedAt - t.startedAt)
       : null;
-
-  const canRetry =
-    t.status === "failed" && t.direction === "send" && !!t.originalPaths && !!t.peerAddr;
 
   return (
     <motion.div
@@ -53,95 +69,116 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className="flex flex-col gap-3 rounded-xl border border-border bg-panel/80 p-4 backdrop-blur-fluent"
+      className="flex flex-col gap-2.5 rounded-xl border border-border bg-panel/80 p-4 backdrop-blur-fluent"
       style={{ boxShadow: "var(--shadow-sm)" }}
     >
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <StatusBadge transfer={t} />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-text">
-              {t.direction === "send" ? "Sending to" : "Receiving from"}{" "}
-              <span className="text-text">{t.peerName || "device"}</span>
-            </p>
-            <p className="truncate font-mono text-xs text-muted">
-              {isActive ? baseName(t.fileName) || "…" : t.message}
-            </p>
-          </div>
+      {/* ── Row 1: icon + headline + right action ───────────────── */}
+      <div className="flex items-center gap-3">
+        <StatusBadge transfer={t} />
+
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-semibold leading-tight text-text">
+            {headline}
+          </p>
+          <p className="mt-0.5 truncate font-mono text-[10px] text-muted">{subline}</p>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1">
-          {duration && (
+        <div className="flex shrink-0 items-center gap-1.5">
+          {isActive && (
+            <span className="tabular font-mono text-sm font-semibold text-accent">
+              {formatPercent(totalPct)}
+            </span>
+          )}
+          {duration && !isActive && (
             <span className="font-mono text-[10px] text-muted">{duration}</span>
           )}
           {!isActive && (
             <button
               onClick={() => dismissTransfer(t.id)}
-              className="rounded p-1 text-muted hover:text-text"
+              className="rounded p-1 text-muted transition-colors hover:text-text"
               aria-label="Dismiss"
             >
-              <X className="size-4" />
+              <X className="size-3.5" />
             </button>
           )}
         </div>
       </div>
 
-      {/* ── Progress bars ────────────────────────────────────────── */}
+      {/* ── Row 2: progress bar ──────────────────────────────────── */}
       {(isActive || t.status === "done") && (
-        <div className="flex flex-col gap-2">
-          {t.files.length > 1 && (
-            <div className="flex flex-col gap-1">
-              <div className="flex justify-between text-[11px] text-muted">
-                <span>
-                  File {Math.min(t.fileIndex + 1, t.files.length)} of{" "}
-                  {t.files.length}
-                </span>
-                <span className="tabular font-mono">{formatPercent(filePct)}</span>
-              </div>
-              <Progress value={filePct * 100} indicatorClassName={barColor(t)} />
-            </div>
-          )}
-          <div className="flex flex-col gap-1">
-            <div className="flex justify-between text-[11px] text-muted">
-              <span>Overall</span>
-              <span className="tabular font-mono">
-                {formatBytes(t.totalBytes)}
-                {t.totalSize > 0 && ` / ${formatBytes(t.totalSize)}`}
-              </span>
-            </div>
-            <Progress value={totalPct * 100} indicatorClassName={barColor(t)} />
-          </div>
-        </div>
+        <Progress
+          value={totalPct * 100}
+          className="h-[3px]"
+          indicatorClassName={barColor(t)}
+        />
       )}
 
-      {/* ── Live telemetry ───────────────────────────────────────── */}
+      {/* ── Row 3: telemetry + cancel ────────────────────────────── */}
       {isActive && (
-        <div className="flex items-center justify-between gap-2 font-mono text-xs">
-          <div className="flex gap-4">
-            <Metric label="speed" value={formatSpeed(t.bytesPerSec)} />
-            <Metric label="eta"   value={formatEta(t.etaSecs)} />
-            <Metric label="done"  value={formatPercent(totalPct)} />
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex gap-5 font-mono text-xs">
+            <Metric icon="↑" value={formatSpeed(t.bytesPerSec)} />
+            <Metric icon="ETA" value={formatEta(t.etaSecs)} />
+            {t.files.length > 1 && (
+              <Metric
+                icon="file"
+                value={`${Math.min(t.fileIndex + 1, t.files.length)} / ${t.files.length}`}
+              />
+            )}
           </div>
           <Button variant="danger" size="sm" onClick={() => cancelTransfer(t.id)}>
-            <Ban /> Cancel
+            <Ban className="size-3.5" /> Cancel
           </Button>
         </div>
       )}
 
-      {/* ── File list (expandable) ───────────────────────────────── */}
-      {t.files.length > 0 && (
+      {/* ── Row 4: completion actions ────────────────────────────── */}
+      {(t.status === "done" || canRetry) && (
+        <div className="flex flex-wrap gap-2">
+          {t.status === "done" && t.direction === "receive" && t.saveDir && (
+            <>
+              <Button
+                variant="ok"
+                size="sm"
+                onClick={() => void (firstFilePath && openPath(firstFilePath))}
+              >
+                <ExternalLink className="size-3.5" /> Open
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() =>
+                  void (firstFilePath
+                    ? revealItemInDir(firstFilePath)
+                    : t.saveDir && openPath(t.saveDir))
+                }
+              >
+                <FolderOpen className="size-3.5" /> Show in folder
+              </Button>
+            </>
+          )}
+          {canRetry && (
+            <Button variant="secondary" size="sm" onClick={() => retryTransfer(t.id)}>
+              <RefreshCw className="size-3.5" /> Retry
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* ── Row 5: expandable file list ──────────────────────────── */}
+      {t.files.length > 1 && (
         <div>
           <button
             onClick={() => setExpanded((x) => !x)}
             className="flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-text"
           >
             <ChevronDown
-              className={cn("size-3.5 transition-transform", expanded && "rotate-180")}
+              className={cn("size-3.5 transition-transform duration-150", expanded && "rotate-180")}
             />
-            {t.files.length} file{t.files.length !== 1 ? "s" : ""}
+            <FileIcon className="size-3 opacity-60" />
+            {t.files.length} files
             {t.totalSize > 0 && (
-              <span className="font-mono">— {formatBytes(t.totalSize)}</span>
+              <span className="font-mono text-muted/60">— {formatBytes(t.totalSize)}</span>
             )}
           </button>
 
@@ -165,9 +202,7 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
                     )}
                   >
                     <span className="truncate font-mono text-[11px]">{f.name}</span>
-                    <span className="shrink-0 font-mono text-[10px]">
-                      {formatBytes(f.size)}
-                    </span>
+                    <span className="shrink-0 font-mono text-[10px]">{formatBytes(f.size)}</span>
                   </li>
                 ))}
               </motion.ul>
@@ -175,68 +210,31 @@ export function TransferItem({ transfer: t }: { transfer: Transfer }) {
           </AnimatePresence>
         </div>
       )}
-
-      {/* ── Completion actions ───────────────────────────────────── */}
-      {(t.status === "done" || canRetry) && (
-        <div className="flex flex-wrap gap-2">
-          {t.status === "done" && t.direction === "receive" && t.saveDir && (
-            <>
-              <Button
-                variant="ok"
-                size="sm"
-                onClick={() => firstFilePath && openPath(firstFilePath)}
-              >
-                <ExternalLink /> Open
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() =>
-                  firstFilePath
-                    ? revealItemInDir(firstFilePath)
-                    : t.saveDir && openPath(t.saveDir)
-                }
-              >
-                <FolderOpen /> Show in folder
-              </Button>
-            </>
-          )}
-          {canRetry && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => retryTransfer(t.id)}
-            >
-              <RefreshCw /> Retry
-            </Button>
-          )}
-        </div>
-      )}
     </motion.div>
   );
 }
 
 function StatusBadge({ transfer: t }: { transfer: Transfer }) {
-  const base = "grid size-9 place-items-center rounded-lg shrink-0";
+  const base = "grid size-8 place-items-center rounded-lg shrink-0";
   if (t.status === "done")
-    return <span className={cn(base, "bg-ok/15 text-ok")}><CheckCircle2 className="size-5" /></span>;
+    return <span className={cn(base, "bg-ok/15 text-ok")}><CheckCircle2 className="size-4" /></span>;
   if (t.status === "failed")
-    return <span className={cn(base, "bg-err/15 text-err")}><XCircle className="size-5" /></span>;
+    return <span className={cn(base, "bg-err/15 text-err")}><XCircle className="size-4" /></span>;
   if (t.status === "cancelled")
-    return <span className={cn(base, "bg-border text-muted")}><Ban className="size-5" /></span>;
+    return <span className={cn(base, "bg-border text-muted")}><Ban className="size-4" /></span>;
   return (
     <span className={cn(base, "bg-accent/15 text-accent")}>
       {t.direction === "send"
-        ? <ArrowUpFromLine className="size-5" />
-        : <ArrowDownToLine className="size-5" />}
+        ? <ArrowUpFromLine className="size-4" />
+        : <ArrowDownToLine className="size-4" />}
     </span>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ icon, value }: { icon: string; value: string }) {
   return (
-    <span className="flex items-baseline gap-1.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted">{label}</span>
+    <span className="flex items-baseline gap-1">
+      <span className="text-[10px] uppercase tracking-wide text-muted">{icon}</span>
       <span className="tabular text-text">{value}</span>
     </span>
   );
@@ -253,12 +251,10 @@ function formatDuration(ms: number): string {
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(1)}s`;
   const m = Math.floor(s / 60);
-  const rem = Math.round(s % 60);
-  return `${m}m ${rem}s`;
+  return `${m}m ${Math.round(s % 60)}s`;
 }
 
 function joinPath(dir: string, name: string): string {
   const sep = dir.includes("\\") ? "\\" : "/";
-  const cleanName = name.replace(/\//g, sep);
-  return dir.endsWith(sep) ? dir + cleanName : dir + sep + cleanName;
+  return dir.endsWith(sep) ? dir + name : dir + sep + name;
 }

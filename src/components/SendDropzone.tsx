@@ -153,42 +153,62 @@ export function SendDropzone() {
 
       {tab === "files" ? (
         <>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm text-muted">
-              {staged.length === 0
-                ? "Drop files or folders here"
-                : `${staged.length} item${staged.length === 1 ? "" : "s"} staged`}
-            </span>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => browse(false)}>
-                <FilePlus2 /> Files
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => browse(true)}>
-                <FolderPlus /> Folder
-              </Button>
+              {staged.length === 0 ? (
+            /* Empty drop zone */
+            <div className="flex flex-col items-center gap-3 py-5">
+              <div
+                className="grid size-10 place-items-center rounded-xl border border-border"
+                style={{ background: "var(--panel-2)" }}
+              >
+                <UploadCloud className="size-5 text-muted" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium text-text">Drop files or folders here</p>
+                <p className="mt-0.5 text-xs text-muted">or browse with the buttons below</p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => browse(false)}>
+                  <FilePlus2 className="size-3.5" /> Files
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => browse(true)}>
+                  <FolderPlus className="size-3.5" /> Folder
+                </Button>
+              </div>
             </div>
-          </div>
-
-          {staged.length > 0 && (
-            <ul className="flex max-h-32 flex-col gap-1 overflow-y-auto">
-              {staged.map((path) => (
-                <li
-                  key={path}
-                  className="flex items-center justify-between gap-2 rounded-md bg-panel px-2.5 py-1.5"
-                >
-                  <span className="truncate font-mono text-xs text-text" title={path}>
-                    {baseName(path.replace(/\\/g, "/"))}
-                  </span>
-                  <button
-                    onClick={() => removeStaged(path)}
-                    className="shrink-0 rounded p-0.5 text-muted hover:text-err"
-                    aria-label={`Remove ${path}`}
+          ) : (
+            /* Files staged — compact chip list */
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted">
+                  {staged.length} item{staged.length !== 1 ? "s" : ""} ready to send
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button variant="secondary" size="sm" onClick={() => browse(false)}>
+                    <FilePlus2 className="size-3.5" /> Add
+                  </Button>
+                </div>
+              </div>
+              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
+                {staged.map((path) => (
+                  <span
+                    key={path}
+                    className="flex items-center gap-1 rounded-full border border-border bg-panel px-2.5 py-1 font-mono text-[11px] text-text"
+                    title={path}
                   >
-                    <X className="size-3.5" />
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    <span className="max-w-[120px] truncate">
+                      {baseName(path.replace(/\\/g, "/"))}
+                    </span>
+                    <button
+                      onClick={() => removeStaged(path)}
+                      className="shrink-0 rounded-full p-0.5 text-muted hover:text-err"
+                      aria-label={`Remove ${path}`}
+                    >
+                      <X className="size-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* Optional note for recipient */}

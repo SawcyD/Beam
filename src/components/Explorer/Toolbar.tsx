@@ -122,8 +122,8 @@ export function ExplorerToolbar({
 
         <div className="mx-1 h-4 w-px bg-border-mid" />
 
-        {/* Send with Beam — amber CTA when files are selected */}
-        {selectedPaths.length > 0 && (
+        {/* Send with Beam */}
+        {selectedPaths.length > 0 ? (
           <Button
             size="sm"
             onClick={() => onSendWithBeam(selectedPaths)}
@@ -132,9 +132,16 @@ export function ExplorerToolbar({
             className="h-7 gap-1.5 px-3 text-[12px]"
           >
             <Zap className="size-3.5" />
-            Send{selectedPaths.length > 1 ? ` (${selectedPaths.length})` : ""}
+            {selectedDevice
+              ? `Send to ${selectedDevice.name}${selectedPaths.length > 1 ? ` (${selectedPaths.length})` : ""}`
+              : `Send (${selectedPaths.length})`}
           </Button>
-        )}
+        ) : selectedDevice ? (
+          <span className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-[11px] text-muted">
+            <Zap className="size-3" />
+            {selectedDevice.name}
+          </span>
+        ) : null}
 
         {/* New folder */}
         <Button variant="ghost" size="icon" onClick={onNewFolder} className="size-7" title="New folder">
