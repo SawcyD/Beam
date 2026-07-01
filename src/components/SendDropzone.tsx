@@ -68,7 +68,19 @@ export function SendDropzone() {
       const p = event.payload;
       if (p.type === "enter" || p.type === "over") { setDragging(true); setTab("files"); }
       else if (p.type === "leave") { setDragging(false); }
-      else if (p.type === "drop") { setDragging(false); if (p.paths.length > 0) addStaged(p.paths); }
+      else if (p.type === "drop") {
+        setDragging(false);
+        if (p.paths.length === 0) return;
+        // If the user dropped onto a device bubble, send directly — don't stage
+        const { dropTargetDeviceId, devices, sendFiles: storeSend, setDropTargetDeviceId } =
+          useBeamStore.getState();
+        if (dropTargetDeviceId) {
+          const device = devices.find((d) => d.id === dropTargetDeviceId);
+          setDropTargetDeviceId(null);
+          if (device) { void storeSend(device, p.paths); return; }
+        }
+        addStaged(p.paths);
+      }
     });
     return () => { void unlistenPromise.then((u) => u()); };
   }, [addStaged]);

@@ -91,6 +91,10 @@ interface BeamState {
   initialized: boolean;
   init: () => Promise<void>;
 
+  // --- drag-onto-device ---
+  dropTargetDeviceId: string | null;
+  setDropTargetDeviceId: (id: string | null) => void;
+
   // --- actions ---
   selectDevice: (id: string | null) => void;
   setDeviceName: (name: string) => Promise<void>;
@@ -123,6 +127,8 @@ export const useBeamStore = create<BeamState>((set, get) => ({
   sessionStats: { sent: 0, received: 0 },
   bandwidthLimit: null,
   groups: [],
+  dropTargetDeviceId: null,
+  setDropTargetDeviceId: (id) => set({ dropTargetDeviceId: id }),
   stagedPaths: [],
   stagedMeta: {},
   watches: [],
